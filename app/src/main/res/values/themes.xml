@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 应用：此主题仅控制冷启动窗口背景，避免白/黑闪 -->
+    <style name="Theme.OrangeKeBiao" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/win_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

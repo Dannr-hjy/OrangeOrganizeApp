@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 高亮卡半透明白层：比整卡背景更实一些，但仍半透明、非纯白 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#ADFFFFFF" />
+    <corners android:radius="16dp" />
+</shape>

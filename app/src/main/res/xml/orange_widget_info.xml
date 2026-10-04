@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面 2×2 课表小组件元信息（OriginOS 优先；后续再适配其他桌面）。
+     固定 2×2，不允许自由拉伸（尺寸变化曾导致行数预算/溢出问题）。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_today"
+    android:previewLayout="@layout/widget_preview"
+    android:resizeMode="none"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description" />

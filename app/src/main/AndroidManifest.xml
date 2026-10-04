@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 课前提醒必须准点：没有精确闹钟权限时会退化成近似闹钟，Doze 里能被推迟十几分钟以上。
+         Android 14 起 SCHEDULE_EXACT_ALARM 默认不授予（需用户手动去系统设置开），
+         对"按课表定时的日历/提醒"类应用改用 USE_EXACT_ALARM（API 33+ 自动授予，无需用户操作）；
+         31~32 仍靠 SCHEDULE_EXACT_ALARM（那两版默认授予）。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <application
+        android:name=".OrangeApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.OrangeKeBiao">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name="com.dannr.chengzikb.data.notify.ClassReminderReceiver"
+            android:exported="false" />
+
+        <!-- 系统事件后重排提醒：开机/覆盖安装/改时间/改时区/事后授权精确闹钟 -->
+        <receiver
+            android:name="com.dannr.chengzikb.data.notify.BootRescheduler"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 桌面课表小组件（OriginOS 优先） -->
+        <receiver
+            android:name=".widget.OrangeWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/orange_widget_info" />
+        </receiver>
+
+        <!-- 小组件自刷新闹钟到点 -->
+        <receiver
+            android:name=".widget.WidgetClockReceiver"
+            android:exported="false" />
+    </application>
+
+</manifest>

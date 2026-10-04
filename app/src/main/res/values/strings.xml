@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">橙子课表</string>
+    <string name="widget_description">实时显示今日/下一有课日的课程与下一节课提醒</string>
+</resources>

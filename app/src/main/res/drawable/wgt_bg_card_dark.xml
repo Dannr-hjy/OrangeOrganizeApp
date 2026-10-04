@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 高亮卡圆角毛玻璃层（暗色）：比整卡更实一层、仍半透明（暖深色比整卡略亮，模拟 surfaceContainerHigh） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#C42C1E12" />
+    <corners android:radius="16dp" />
+</shape>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小组件整体圆角毛玻璃底（暗色）：与亮色同比例的半透明，透出壁纸又保证浅色文字可读（暖深色取自 App 深色 surface） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#B31A120C" />
+    <corners android:radius="26dp" />
+</shape>

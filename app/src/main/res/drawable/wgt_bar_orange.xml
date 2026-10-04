@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 预览用橙色竖条（仅 add-widget 静态预览） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFE8590C" />
+    <corners android:radius="6dp" />
+</shape>

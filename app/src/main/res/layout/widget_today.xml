@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 课表小组件根布局：固定槽位 + Provider 按需显隐。
+     槽位 r1..r3 在高亮卡上方（已上完/灰），r4..r6 在下方（未上/黑）。
+     不使用 addView，规避部分桌面刷新时重复堆积。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wgt_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/wgt_bg_root"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="9dp"
+    android:paddingBottom="10dp"
+    android:clipToOutline="true">
+
+    <!-- 头部：日期 + 星期，同行基线对齐，字号与列表正文一致 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="true"
+        android:paddingStart="3dp"
+        android:paddingBottom="5dp">
+
+        <TextView
+            android:id="@+id/wgt_header_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF2B2B2B"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_header_week"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF937B35"
+            android:text="" />
+    </LinearLayout>
+
+    <!-- 高亮卡上方普通行（已上完，灰）槽位 1..3 -->
+    <LinearLayout
+        android:id="@+id/wgt_r1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2.5dp"
+        android:paddingBottom="2.5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_dot1"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="7dp"
+            android:src="@drawable/wgt_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/wgt_name1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_time1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/wgt_r2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2.5dp"
+        android:paddingBottom="2.5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_dot2"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="7dp"
+            android:src="@drawable/wgt_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/wgt_name2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_time2"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/wgt_r3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2.5dp"
+        android:paddingBottom="2.5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_dot3"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="7dp"
+            android:src="@drawable/wgt_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/wgt_name3"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_time3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+    </LinearLayout>
+
+    <!-- ======== 下一节高亮卡 ======== -->
+    <LinearLayout
+        android:id="@+id/wgt_focus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/wgt_bg_card"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:paddingStart="13dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_focus_bar"
+            android:layout_width="5dp"
+            android:layout_height="52dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/wgt_bar"
+            android:importantForAccessibility="no" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- 课程名 + 右侧状态 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/wgt_focus_name"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#FF1A1A1A"
+                    android:text="" />
+
+                <TextView
+                    android:id="@+id/wgt_focus_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:maxLines="1"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#FF1A1A1A"
+                    android:text="" />
+            </LinearLayout>
+
+            <!-- 时间行 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:id="@+id/wgt_focus_clock"
+                    android:layout_width="12dp"
+                    android:layout_height="12dp"
+                    android:layout_marginEnd="5dp"
+                    android:src="@drawable/ic_wgt_clock"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/wgt_focus_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:textSize="11sp"
+                    android:textColor="#FF1A1A1A"
+                    android:text="" />
+            </LinearLayout>
+
+            <!-- 地点行（无地点整行隐藏） -->
+            <LinearLayout
+                android:id="@+id/wgt_focus_loc_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:id="@+id/wgt_focus_pin"
+                    android:layout_width="12dp"
+                    android:layout_height="12dp"
+                    android:layout_marginEnd="5dp"
+                    android:src="@drawable/ic_wgt_pin"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/wgt_focus_loc"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textSize="11sp"
+                    android:textColor="#FF1A1A1A"
+                    android:text="" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 高亮卡下方普通行（未上，黑）槽位 4..6 -->
+    <LinearLayout
+        android:id="@+id/wgt_r4"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2.5dp"
+        android:paddingBottom="2.5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_dot4"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="7dp"
+            android:src="@drawable/wgt_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/wgt_name4"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_time4"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/wgt_r5"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2.5dp"
+        android:paddingBottom="2.5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_dot5"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="7dp"
+            android:src="@drawable/wgt_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/wgt_name5"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_time5"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/wgt_r6"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2.5dp"
+        android:paddingBottom="2.5dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/wgt_dot6"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="7dp"
+            android:src="@drawable/wgt_dot"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/wgt_name6"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/wgt_time6"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textColor="#FF1A1A1A"
+            android:text="" />
+    </LinearLayout>
+
+    <!-- 今天没课 / 今天的课已上完 提示：吃掉剩余高度并左右+上下居中 -->
+    <TextView
+        android:id="@+id/wgt_message"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:textSize="12sp"
+        android:textColor="#FF757575"
+        android:visibility="gone"
+        android:text="" />
+</LinearLayout>

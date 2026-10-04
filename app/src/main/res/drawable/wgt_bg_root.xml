@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小组件整体圆角毛玻璃底：半透明白，既透出壁纸又压暗画面保证黑字可读 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#A6FFFFFF" />
+    <corners android:radius="26dp" />
+</shape>
