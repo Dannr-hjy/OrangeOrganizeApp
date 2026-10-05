@@ -1,4 +1,4 @@
-# 橙子课表（OrangeKeBiao）
+# OrangeOrganize（橙子课表）
 
 一款纯本地、无广告、无账号的 Android 课表 App。基于 **Jetpack Compose + Material3 + Room** 构建，数据全部保存在设备本地，不联网、不上传。
 
@@ -134,4 +134,12 @@ keyPassword=********
 
 ## 许可
 
-暂未指定开源许可证。
+本项目采用 [CC BY-NC-SA 4.0（Creative Commons 署名—非商业性使用—相同方式共享 4.0 国际）](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh) 协议。
+
+你可以自由地共享、复制、发行及演绎本项目，但须遵守以下条件：
+
+- **署名（BY）**：须注明原作者及来源。
+- **非商业性使用（NC）**：不得将本项目用于商业目的。
+- **相同方式共享（SA）**：若基于本项目进行修改或再创作，须以相同协议分发衍生物。
+
+完整条款以 [LICENSE](https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-hans) 官方文本为准。
