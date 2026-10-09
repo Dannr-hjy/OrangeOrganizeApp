@@ -1,4 +1,4 @@
-# OrangeOrganize（橙子课表）
+# 橙子课表（OrangeOrganize）
 
 一款纯本地、无广告、无账号的 Android 课表 App。基于 **Jetpack Compose + Material3 + Room** 构建，数据全部保存在设备本地，不联网、不上传。
 
