@@ -17,8 +17,8 @@ android {
         // minSdk 26 = Android 8.0：可直接使用 java.time，无需 core-library-desugaring
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.4.0"
+        versionCode = 7
+        versionName = "1.5.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -66,6 +66,10 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -92,5 +96,6 @@ dependencies {
     testImplementation(libs.junit)
     // JVM 单测需要 org.json 实现（Android 平台自带，测试运行在 JVM）
     testImplementation(libs.orgjson)
+    testImplementation(libs.robolectric)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

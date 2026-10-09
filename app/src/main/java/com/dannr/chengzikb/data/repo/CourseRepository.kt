@@ -67,7 +67,10 @@ class CourseRepository(
         if (others.any { overlaps(it, target) }) return@withTransaction false
 
         if (!thisWeekOnly) {
-            sessionDao.upsert(session.copy(dayOfWeek = newDay, startPeriodIdx = newStart, endPeriodIdx = newEnd))
+            val keepClock = newStart == session.startPeriodIdx && newEnd == session.endPeriodIdx
+            sessionDao.upsert(session.copy(dayOfWeek = newDay, startPeriodIdx = newStart, endPeriodIdx = newEnd,
+                startMinute = if (keepClock) session.startMinute else null,
+                endMinute = if (keepClock) session.endMinute else null))
             return@withTransaction true
         }
         val remaining = WeekSet.fromIterable(
@@ -86,6 +89,8 @@ class CourseRepository(
                 endPeriodIdx = newEnd,
                 activeWeeksText = WeekSet.of(week).toText(),
                 location = session.location, // 挪走的那一周沿用原教室
+                startMinute = if (newStart == session.startPeriodIdx && newEnd == session.endPeriodIdx) session.startMinute else null,
+                endMinute = if (newStart == session.startPeriodIdx && newEnd == session.endPeriodIdx) session.endMinute else null,
             ),
         )
         true

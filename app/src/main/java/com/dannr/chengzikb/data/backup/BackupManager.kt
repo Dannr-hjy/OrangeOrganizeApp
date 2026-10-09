@@ -128,6 +128,8 @@ object BackupManager {
             o.put("endPeriodIdx", sn.endPeriodIdx)
             o.put("activeWeeksText", sn.activeWeeksText)
             sn.location?.takeIf { it.isNotBlank() }?.let { o.put("location", it) }
+            sn.startMinute?.let { o.put("startMinute", it) }
+            sn.endMinute?.let { o.put("endMinute", it) }
             a.put(o)
         }
         return a
@@ -208,6 +210,8 @@ object BackupManager {
                                 endPeriodIdx = so.optInt("endPeriodIdx", 0),
                                 activeWeeksText = so.optString("activeWeeksText", ""),
                                 location = own ?: courseLocation, // 旧版无地点 → 沿用该课整课地点
+                                startMinute = optionalMinute(so, "startMinute"),
+                                endMinute = optionalMinute(so, "endMinute"),
                             )
                         }
                     }
@@ -217,6 +221,13 @@ object BackupManager {
             out += TableDump(name, settings, periods.sortedBy { it.order }, courses, parseOverrides(tb))
         }
         return out
+    }
+
+    private fun optionalMinute(o: JSONObject, key: String): Int? {
+        if (!o.has(key) || o.isNull(key)) return null
+        val minute = o.getInt(key)
+        require(minute in 0..1439) { "备份中的课程时间无效" }
+        return minute
     }
 
     /** 解析 dayOverrides（旧备份无此数组 → 空）。日期或 kind 明显非法的行直接跳过。 */
