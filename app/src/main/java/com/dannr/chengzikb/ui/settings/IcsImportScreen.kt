@@ -34,6 +34,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -49,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +86,8 @@ fun IcsImportScreen(
     var overwriteConfirm by remember { mutableStateOf(false) }
     var importedInfo by remember { mutableStateOf<IcsImporter.IcsResult?>(null) } // 导入成功提示
     var targetHasCourses by remember { mutableStateOf(false) }
+    // 连堂时长对不上时逐块的选择：true = 按文件更新作息，false = 保持当前作息；未选过默认按文件更新
+    var periodChoices by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
 
     // 学期日期决定周次；文件中的钟点可更新作息，无需预先手工逐节填写。
     val curSettings by app.container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
@@ -107,7 +111,14 @@ fun IcsImportScreen(
         }
     }
 
+    /** 选了"按文件更新"的冲突块起始节次；没点过时默认按文件更新（有推算结果的话）。 */
+    fun fileClockSpans(r: IcsImporter.IcsResult): Set<Int> =
+        r.periodConflicts.filter { periodChoices[it.startPeriodIdx] ?: (it.proposal != null) }
+            .map { it.startPeriodIdx }.toSet()
+
     fun doImport(result: IcsImporter.IcsResult, overwriteCurrent: Boolean, createNew: Boolean) {
+        val assembled = IcsImporter.assemblePeriods(result, fileClockSpans(result))
+        val effective = if (assembled == null) result else result.copy(periods = assembled)
         scope.launch {
             busy = true
             val out = runCatching {
@@ -117,15 +128,15 @@ fun IcsImportScreen(
                         val id = manager.create(name)
                         if (id < 0L) error("创建课表失败（名称重复？）")
                     }
-                    if (overwriteCurrent || createNew) IcsImporter.overwriteActive(db, result)
-                    else IcsImporter.write(db, result)
+                    if (overwriteCurrent || createNew) IcsImporter.overwriteActive(db, effective)
+                    else IcsImporter.write(db, effective)
                 }
             }
             busy = false
             parsed = null
             overwriteConfirm = false
             out.onSuccess {
-                importedInfo = result
+                importedInfo = effective
             }.onFailure { snackbar.showSnackbar("导入失败：${it.message}") }
         }
     }
@@ -157,6 +168,7 @@ fun IcsImportScreen(
                     snackbar.showSnackbar(result.warnings.firstOrNull() ?: "未识别到本学期课程，请检查文件与学期日期")
                 } else {
                     targetHasCourses = hasCourses
+                    periodChoices = emptyMap()
                     parsed = result
                 }
             }.onFailure { snackbar.showSnackbar("解析失败：${it.message}") }
@@ -301,13 +313,34 @@ fun IcsImportScreen(
                         }
 
                         parsed?.let { r ->
+                            val assembled = IcsImporter.assemblePeriods(r, fileClockSpans(r))
+                            val blocked = assembled == null
                             Spacer(Modifier.height(18.dp))
                             Text("解析结果", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(4.dp))
                             Text("识别到 ${r.courses.size} 门课程、${r.sessionCount} 个时间段，已读取课程起止时间。请选择导入方式：", style = MaterialTheme.typography.bodyMedium)
-                            if (r.periods.isNotEmpty()) {
+                            if (r.periods.isNotEmpty() && r.periodConflicts.isEmpty()) {
                                 Text(if (r.periodsAligned) "将按文件中的课程钟点更新作息时间表，单节时长与课间间隔沿用当前作息。"
                                     else "文件包含 ${r.periods.size} 节完整作息，将随课程一起导入。", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (r.periodConflicts.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("作息时间表待确认", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                Text("这些节次的连堂总时长与当前作息不同，文件只给了起止钟点、没有课间边界。默认按文件更新（保留课间、差值平分到单节），也可以保持当前作息。",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(6.dp))
+                                r.periodConflicts.forEach { c ->
+                                    PeriodConflictCard(
+                                        conflict = c,
+                                        useFileClock = periodChoices[c.startPeriodIdx] ?: (c.proposal != null),
+                                        onChoice = { use -> periodChoices = periodChoices + (c.startPeriodIdx to use) },
+                                    )
+                                }
+                            }
+                            if (blocked) {
+                                Spacer(Modifier.height(4.dp))
+                                Text("按当前选择更新作息后会与相邻节次重叠，请改回「保持当前作息」或先调整作息时间表。",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                             if (r.periodNotes.isNotEmpty()) {
                                 Text(r.periodNotes.joinToString("\n"), style = MaterialTheme.typography.bodySmall,
@@ -324,7 +357,7 @@ fun IcsImportScreen(
                                     if (targetHasCourses) overwriteConfirm = true
                                     else doImport(r, overwriteCurrent = true, createNew = false)
                                 },
-                                enabled = !busy,
+                                enabled = !busy && !blocked,
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
                                 modifier = Modifier.fillMaxWidth(),
@@ -336,7 +369,7 @@ fun IcsImportScreen(
                             Spacer(Modifier.height(8.dp))
                             Surface(
                                 onClick = { doImport(r, overwriteCurrent = false, createNew = true) },
-                                enabled = !busy,
+                                enabled = !busy && !blocked,
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.fillMaxWidth(),
@@ -388,6 +421,77 @@ fun IcsImportScreen(
 }
 
 private fun importClock(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
+
+// 卡片文案：文件钟点与当前作息分行给出，两个选项各自只说"作息"改不改，避免把两者的时间读混。
+internal fun conflictFileLine(c: IcsImporter.PeriodConflict): String =
+    "文件钟点 ${importClock(c.fileStartMinute)}–${importClock(c.fileEndMinute)}（${c.fileDuration} 分钟）"
+
+internal fun conflictCurrentLine(c: IcsImporter.PeriodConflict): String =
+    "当前作息 ${importClock(c.current.first().startMinute)}–${importClock(c.current.last().endMinute)}（${c.currentDuration} 分钟）"
+
+internal fun conflictProposalLine(c: IcsImporter.PeriodConflict): String =
+    "作息改为 " + c.proposal.orEmpty().joinToString("、") { "${importClock(it.startMinute)}–${importClock(it.endMinute)}" } + "（课间不变）"
+
+internal fun conflictKeepLine(c: IcsImporter.PeriodConflict): String =
+    "作息不动，课程按 ${importClock(c.fileStartMinute)}–${importClock(c.fileEndMinute)} 显示"
+
+/**
+ * 一个连堂块的处理方式：文件给了外层钟点、没给课间边界，所以由用户拍板。
+ * [conflict] 带推算结果时默认选"按文件更新"，推不出来时只能保持当前作息。
+ */
+@Composable
+private fun PeriodConflictCard(
+    conflict: IcsImporter.PeriodConflict,
+    useFileClock: Boolean,
+    onChoice: (Boolean) -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(conflict.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(2.dp))
+            Text(conflictFileLine(conflict), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(conflictCurrentLine(conflict), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(4.dp))
+            if (conflict.proposal == null) {
+                Text(conflict.reason.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            } else {
+                ChoiceRow(
+                    selected = useFileClock,
+                    title = "按文件更新作息",
+                    detail = conflictProposalLine(conflict),
+                    onClick = { onChoice(true) },
+                )
+                ChoiceRow(
+                    selected = !useFileClock,
+                    title = "保持当前作息",
+                    detail = conflictKeepLine(conflict),
+                    onClick = { onChoice(false) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceRow(selected: Boolean, title: String, detail: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
 
 @Composable
 private fun SectionHeading(text: String) {

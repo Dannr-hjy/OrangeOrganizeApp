@@ -3,6 +3,7 @@ package com.dannr.chengzikb
 import com.dannr.chengzikb.data.Defaults
 import com.dannr.chengzikb.data.import.IcsImporter
 import com.dannr.chengzikb.data.model.CourseSession
+import com.dannr.chengzikb.data.model.PeriodSetting
 import com.dannr.chengzikb.data.model.startMinuteIn
 import com.dannr.chengzikb.data.model.endMinuteIn
 import java.time.LocalDate
@@ -10,11 +11,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class IcsCompatibilityTest {
-    @Test fun `different block duration is reported instead of inventing its internal break`() {
+    @Test fun `different block duration is offered as a rebuild instead of a fabricated break`() {
         val result = parse(event(end = "20260907T095000"))
-        assertTrue(result.periods.isEmpty())
-        assertTrue(result.periodNotes.single().contains("时长"))
+        assertTrue(result.periods.isEmpty()) // 不擅自改作息
+        assertTrue(result.periodNotes.isEmpty())
+        val conflict = result.periodConflicts.single()
+        assertEquals("第1–2节", conflict.label)
+        assertEquals(90, conflict.fileDuration)
+        assertEquals(100, conflict.currentDuration)
+        assertEquals(listOf(500, 550), conflict.proposal?.map { it.startMinute })
+        assertEquals(listOf(540, 590), conflict.proposal?.map { it.endMinute })
         assertEquals(590, result.courses.single().sessions.single().endMinute)
+    }
+
+    @Test fun `rebuild proposal reaches the timetable only after the user accepts it`() {
+        val result = parse(event(end = "20260907T095000"))
+        val span = result.periodConflicts.single().startPeriodIdx
+        assertEquals(emptyList<PeriodSetting>(), IcsImporter.assemblePeriods(result, emptySet())) // 空 = 不动作息
+        val accepted = IcsImporter.assemblePeriods(result, setOf(span))!!
+        // 只有文件里出现过的第1–2节被改写，其余节次保持原样
+        assertEquals(listOf(500, 550, 600, 655, 840, 895, 960, 1015), accepted.take(8).map { it.startMinute })
+        assertEquals(listOf(540, 590, 645, 700, 885, 940, 1005, 1060), accepted.take(8).map { it.endMinute })
+    }
+
+    @Test fun `an impossible rebuild asks the user and never touches the timetable`() {
+        val result = parse(event(end = "20260907T083000"))
+        val conflict = result.periodConflicts.single()
+        assertNull(conflict.proposal)
+        assertTrue(conflict.reason!!.contains("手动"))
+        // 没有推算结果，即使用户选了"按文件更新"也不改动作息
+        assertEquals(emptyList<PeriodSetting>(),
+            IcsImporter.assemblePeriods(result, setOf(conflict.startPeriodIdx)))
     }
 
     @Test fun `inconsistent clocks for one span do not rewrite its shared timetable`() {

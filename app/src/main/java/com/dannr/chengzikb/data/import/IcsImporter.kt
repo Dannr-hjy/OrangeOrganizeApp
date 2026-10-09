@@ -31,6 +31,24 @@ object IcsImporter {
         val sessions: List<SessionSpec>,
     )
 
+    /**
+     * 文件里的连堂总时长与当前作息不同：普通 ICS 只给外层钟点，无法确定内部课间。
+     * [proposal] 是"保留课间、把差值按节数平分进单节"推算出的作息；推不出来时为 null，由用户手动决定。
+     */
+    data class PeriodConflict(
+        val startPeriodIdx: Int,
+        val endPeriodIdx: Int,
+        val label: String,
+        val fileStartMinute: Int,
+        val fileEndMinute: Int,
+        val current: List<PeriodSetting>,
+        val proposal: List<PeriodSetting>?,
+        val reason: String?,
+    ) {
+        val fileDuration: Int get() = fileEndMinute - fileStartMinute
+        val currentDuration: Int get() = current.last().endMinute - current.first().startMinute
+    }
+
     data class IcsResult(
         val courses: List<MergedCourse>,
         val sessionCount: Int,
@@ -38,6 +56,10 @@ object IcsImporter {
         val warnings: List<String> = emptyList(),
         val periodsAligned: Boolean = false,
         val periodNotes: List<String> = emptyList(),
+        /** 导入时当前课表的作息，供预览页把用户的选择组装回完整列表。 */
+        val configuredPeriods: List<PeriodSetting> = emptyList(),
+        /** 连堂时长对不上、需要用户拍板的节次块。 */
+        val periodConflicts: List<PeriodConflict> = emptyList(),
     )
 
     fun parsePeriodSpan(description: String?): Pair<Int, Int>? = IcsParser.parsePeriodSpan(description)
@@ -58,6 +80,27 @@ object IcsImporter {
             ?: WeekMath.mondayOfWeek(LocalDate.now())
         return buildCourses(termStart, settings?.totalWeeks ?: 20, db.periodDao().getAllByTimetable(active), ics)
     }
+
+    /**
+     * 预览页按用户选择组装最终作息：[useFileClock] 是选了"按文件更新"的冲突块起始节次。
+     * 返回 null 表示组装后会与相邻节次重叠（不能写入）；返回空列表表示作息无需改动
+     * （与 [IcsResult.periods] 的约定一致：空即"保持课表现有作息"）。
+     */
+    fun assemblePeriods(result: IcsResult, useFileClock: Set<Int>): List<PeriodSetting>? {
+        val chosen = result.periodConflicts
+            .filter { it.startPeriodIdx in useFileClock }
+            .flatMap { it.proposal.orEmpty() }
+        if (chosen.isEmpty()) return if (result.periods.isEmpty()) emptyList() else result.periods
+        val base = result.periods.ifEmpty { result.configuredPeriods }
+        val replacement = chosen.associateBy { it.order }
+        val merged = base.sortedBy { it.order }.map { replacement[it.order] ?: it }
+        return merged.takeIf(::isValidTimetable)
+    }
+
+    /** 越界、单节时长为负或与邻节重叠的作息不能落库。 */
+    fun isValidTimetable(periods: List<PeriodSetting>): Boolean =
+        periods.all { it.startMinute in 0..1439 && it.endMinute in 0..1439 && it.startMinute < it.endMinute } &&
+            periods.zipWithNext().all { (a, b) -> a.endMinute <= b.startMinute }
 
     /** Deletion and insertion share a transaction: failed imports preserve the old courses. */
     suspend fun overwriteActive(db: AppDatabase, result: IcsResult) = persist(db, result, overwrite = true)

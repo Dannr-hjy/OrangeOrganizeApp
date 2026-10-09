@@ -7,6 +7,7 @@ import com.dannr.chengzikb.data.db.AppDatabase
 import com.dannr.chengzikb.data.import.IcsImporter
 import com.dannr.chengzikb.data.model.Course
 import com.dannr.chengzikb.data.model.MetaEntry
+import com.dannr.chengzikb.data.model.PeriodSetting
 import com.dannr.chengzikb.data.model.Timetable
 import com.dannr.chengzikb.data.repo.PeriodRepository
 import com.dannr.chengzikb.data.repo.TimetableManager
@@ -82,6 +83,27 @@ class IcsPersistenceTest {
         val rows = periods.all.first()
         assertEquals(8, rows.size)
         assertSchoolClocks(rows)
+    }
+
+    @Test fun `accepted rebuild proposal reaches the period editor and keeps the file clocks`() = runBlocking {
+        val result = IcsImporter.buildForActive(db, fixture("wakeup-reference"))
+        val accepted = IcsImporter.assemblePeriods(result, result.periodConflicts.map { it.startPeriodIdx }.toSet())!!
+        IcsImporter.overwriteActive(db, result.copy(periods = accepted))
+        val rows = periods.all.first()
+        assertEquals(listOf(480, 535, 600, 655, 870, 920, 970, 1020), rows.take(8).map { it.startMinute })
+        assertEquals(listOf(525, 580, 645, 700, 910, 960, 1010, 1060), rows.take(8).map { it.endMinute })
+        // 课程本身仍按文件的真实钟点显示（下午块 14:30–16:00）
+        assertTrue(db.courseSessionDao().getAllByTimetable(original).any { it.startMinute == 870 && it.endMinute == 960 })
+    }
+
+    @Test fun `declined rebuild leaves the timetable exactly as it was`() = runBlocking {
+        val result = IcsImporter.buildForActive(db, fixture("wakeup-reference"))
+        assertEquals(emptyList<PeriodSetting>(), result.periods)
+        IcsImporter.overwriteActive(db, result)
+        val rows = periods.all.first()
+        assertEquals(listOf(480, 535, 600, 655, 840, 895, 960, 1015), rows.take(8).map { it.startMinute })
+        assertEquals(listOf(525, 580, 645, 700, 885, 940, 1005, 1060), rows.take(8).map { it.endMinute })
+        assertEquals(7, db.courseDao().getAllByTimetable(original).size)
     }
 
     @Test fun `failed session insertion rolls back both courses and period updates`() = runBlocking {

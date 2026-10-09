@@ -15,6 +15,11 @@ import java.time.temporal.TemporalAdjusters
 /** ICS parsing without database or Android dependencies. Timetable clocks use Shanghai time. */
 internal object IcsParser {
     private val timetableZone = ZoneId.of("Asia/Shanghai")
+
+    /** 推算作息时单节时长的合理区间，越界就不猜，交给用户。 */
+    private const val MIN_LESSON_MINUTES = 10
+    private const val MAX_LESSON_MINUTES = 240
+
     private val spanRegex = Regex("第\\s*(\\d+)\\s*(?:[-–—－~～至]\\s*(\\d+))?\\s*节")
     private data class Field(val key: String, val params: Map<String, String>, val value: String)
     private data class Slot(val day: Int, val first: Int, val last: Int, val room: String?, val start: Int, val end: Int)
@@ -103,22 +108,34 @@ internal object IcsParser {
                     IcsImporter.SessionSpec(slot.day, slot.first, slot.last, weeks.toSet(), slot.room, slot.start, slot.end)
                 })
         }
-        val alignment = if (importedPeriods.isEmpty()) alignPeriods(configured, courses.flatMap { it.sessions }) else emptyList<PeriodSetting>() to emptyList()
+        val alignment = if (importedPeriods.isEmpty()) alignPeriods(configured, courses.flatMap { it.sessions }) else Alignment()
         return IcsImporter.IcsResult(
             courses = courses, sessionCount = courses.sumOf { it.sessions.size },
-            periods = importedPeriods.ifEmpty { alignment.first }, warnings = warnings.distinct(),
-            periodsAligned = importedPeriods.isEmpty() && alignment.first.isNotEmpty(), periodNotes = alignment.second,
+            periods = importedPeriods.ifEmpty { alignment.periods }, warnings = warnings.distinct(),
+            periodsAligned = importedPeriods.isEmpty() && alignment.periods.isNotEmpty(),
+            periodNotes = alignment.notes,
+            configuredPeriods = configured,
+            periodConflicts = alignment.conflicts,
         )
     }
+
+    private data class Alignment(
+        val periods: List<PeriodSetting> = emptyList(),
+        val notes: List<String> = emptyList(),
+        val conflicts: List<IcsImporter.PeriodConflict> = emptyList(),
+    )
 
     /**
      * A normal ICS supplies the outer clock of a lesson span, not its internal breaks.
      * When that duration matches the configured span, translate the whole span while
      * retaining the user's lesson lengths and gaps. Single-period events are exact.
+     * When the duration differs the span is handed to [proposeRebuild] and offered to
+     * the user instead of being decided here.
      */
-    private fun alignPeriods(configured: List<PeriodSetting>, sessions: List<IcsImporter.SessionSpec>): Pair<List<PeriodSetting>, List<String>> {
-        if (configured.isEmpty() || sessions.isEmpty()) return emptyList<PeriodSetting>() to emptyList()
+    private fun alignPeriods(configured: List<PeriodSetting>, sessions: List<IcsImporter.SessionSpec>): Alignment {
+        if (configured.isEmpty() || sessions.isEmpty()) return Alignment()
         val notes = mutableListOf<String>()
+        val conflicts = mutableListOf<IcsImporter.PeriodConflict>()
         val proposed = mutableMapOf<Int, MutableSet<Pair<Int, Int>>>()
         val byOrder = configured.associateBy { it.order }
         for ((span, group) in sessions.groupBy { it.startPeriodIdx to it.endPeriodIdx }) {
@@ -134,27 +151,66 @@ internal object IcsParser {
                 notes += "$label 尚未在作息表中配置。"
                 continue
             }
-            val replacements = if (block.size == 1) listOf(block.single().copy(startMinute = start, endMinute = end)) else {
-                if (block.last().endMinute - block.first().startMinute != end - start) {
-                    notes += "$label 的连堂时长与当前作息不同；文件没有课间边界，课程钟点已保留，请补充完整作息。"
-                    continue
-                }
-                val delta = start - block.first().startMinute
-                block.map { it.copy(startMinute = it.startMinute + delta, endMinute = it.endMinute + delta) }
+            if (block.size == 1) {
+                proposed.getOrPut(block.single().order) { mutableSetOf() }.add(start to end)
+                continue
             }
-            replacements.forEach { p -> proposed.getOrPut(p.order) { mutableSetOf() }.add(p.startMinute to p.endMinute) }
+            if (block.last().endMinute - block.first().startMinute != end - start) {
+                val proposal = proposeRebuild(block, start, end)
+                conflicts += IcsImporter.PeriodConflict(
+                    startPeriodIdx = span.first, endPeriodIdx = span.second, label = label,
+                    fileStartMinute = start, fileEndMinute = end, current = block, proposal = proposal,
+                    reason = if (proposal == null) "$label 的连堂时长与当前作息相差过多，无法推算课间边界；课程钟点已保留，请手动调整作息。" else null,
+                )
+                continue
+            }
+            val delta = start - block.first().startMinute
+            block.map { it.copy(startMinute = it.startMinute + delta, endMinute = it.endMinute + delta) }
+                .forEach { p -> proposed.getOrPut(p.order) { mutableSetOf() }.add(p.startMinute to p.endMinute) }
         }
         if (proposed.values.any { it.size != 1 }) {
-            return emptyList<PeriodSetting>() to (notes + "文件中的节次时间互相冲突，课程钟点已分别保存，未统一作息。")
+            return Alignment(notes = notes + "文件中的节次时间互相冲突，课程钟点已分别保存，未统一作息。", conflicts = conflicts)
         }
-        val updated = configured.sortedBy { it.order }.map { p ->
+        val sorted = configured.sortedBy { it.order }
+        val updated = sorted.map { p ->
             proposed[p.order]?.single()?.let { (a, b) -> p.copy(startMinute = a, endMinute = b) } ?: p
         }
-        if (updated.any { it.startMinute !in 0..1439 || it.endMinute !in 0..1439 || it.startMinute >= it.endMinute } ||
-            !updated.zipWithNext().all { (a, b) -> a.endMinute <= b.startMinute }) {
-            return emptyList<PeriodSetting>() to (notes + "更新后的节次会与其他作息重叠，课程钟点已分别保存，请检查作息表。")
+        if (!IcsImporter.isValidTimetable(updated)) {
+            return Alignment(notes = notes + "更新后的节次会与其他作息重叠，课程钟点已分别保存，请检查作息表。", conflicts = conflicts)
         }
-        return (if (updated == configured.sortedBy { it.order }) emptyList() else updated) to notes.distinct()
+        return Alignment(if (updated == sorted) emptyList() else updated, notes.distinct(), conflicts)
+    }
+
+    /**
+     * 文件只给连堂的外层钟点，内部课间无从确定。这里保留用户现有的课间间隔，
+     * 把总时长的差值按节数平分到单节时长上（除不尽时余数分给靠前的节次），
+     * 例如 08:00–09:40 的 45+10+45 改成 08:20–10:00 的 40+10+40。
+     * 推不出合理结果时返回 null，交给用户手动决定。
+     */
+    private fun proposeRebuild(block: List<PeriodSetting>, start: Int, end: Int): List<PeriodSetting>? {
+        val n = block.size
+        if (n < 2) return null
+        val delta = (end - start) - (block.last().endMinute - block.first().startMinute)
+        val per = delta / n
+        val extra = delta - per * n
+        val lessons = block.mapIndexed { i, p ->
+            (p.endMinute - p.startMinute) + per + when {
+                extra > 0 && i < extra -> 1
+                extra < 0 && i < -extra -> -1
+                else -> 0
+            }
+        }
+        if (lessons.any { it < MIN_LESSON_MINUTES || it > MAX_LESSON_MINUTES }) return null
+        val gaps = (1 until n).map { block[it].startMinute - block[it - 1].endMinute }
+        if (gaps.any { it < 0 }) return null
+        var cursor = start
+        val out = block.mapIndexed { i, p ->
+            if (i > 0) cursor += gaps[i - 1]
+            val next = p.copy(startMinute = cursor, endMinute = cursor + lessons[i])
+            cursor = next.endMinute
+            next
+        }
+        return out.takeIf { cursor == end }
     }
 
     /** Weekly recurrence is bounded by the selected semester even without UNTIL. */
