@@ -18,6 +18,7 @@ import com.dannr.chengzikb.R
 import com.dannr.chengzikb.data.db.AppDatabase
 import com.dannr.chengzikb.data.model.MetaEntry
 import com.dannr.chengzikb.data.model.isActiveIn
+import com.dannr.chengzikb.data.model.startMinuteIn
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayPlanIndex
 import com.dannr.chengzikb.domain.WeekMath
@@ -188,7 +189,7 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
                 if (s.dayOfWeek != dayOfWeek) continue
                 if (!s.isActiveIn(week)) continue
                 val course = courses[s.courseId] ?: continue
-                val startMinute = periods.getOrNull(s.startPeriodIdx)?.startMinute ?: continue
+                val startMinute = s.startMinuteIn(periods) ?: continue
                 val classStart = LocalDateTime.of(date, LocalTime.of(startMinute / 60, startMinute % 60))
                 if (!classStart.isAfter(now)) continue
                 val fire = classStart.minusMinutes(leadMinutes.toLong())

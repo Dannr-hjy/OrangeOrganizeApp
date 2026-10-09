@@ -80,6 +80,8 @@ import com.dannr.chengzikb.data.model.describe
 import com.dannr.chengzikb.data.model.weekSet
 import com.dannr.chengzikb.domain.DayPlanIndex
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.data.model.startMinuteIn
+import com.dannr.chengzikb.data.model.endMinuteIn
 import com.dannr.chengzikb.ui.day.DayOverrideDialog
 import com.dannr.chengzikb.ui.grid.TimetableGrid
 import com.dannr.chengzikb.ui.settings.SettingsScreen
@@ -221,7 +223,8 @@ fun MainScreen(
             state.sessions.forEach { s ->
                 append(s.id).append('-').append(s.dayOfWeek).append('-').append(s.startPeriodIdx)
                     .append('-').append(s.endPeriodIdx).append('-').append(s.activeWeeksText)
-                    .append('-').append(s.location ?: "").append(';') // 地点变化也要重排提醒
+                    .append('-').append(s.location ?: "")
+                    .append('-').append(s.startMinute).append('-').append(s.endMinute).append(';')
             }
         }
     }
@@ -309,8 +312,8 @@ fun MainScreen(
         val course = occ.course
         val session = occ.session
         val periodTimes = state.periods
-        val startMin = periodTimes.getOrNull(session.startPeriodIdx)?.startMinute
-        val endMin = periodTimes.getOrNull(session.endPeriodIdx)?.endMinute
+        val startMin = session.startMinuteIn(periodTimes)
+        val endMin = session.endMinuteIn(periodTimes)
         val spanLabel = if (session.endPeriodIdx > session.startPeriodIdx) {
             "第${session.startPeriodIdx + 1}-${session.endPeriodIdx + 1}节"
         } else {

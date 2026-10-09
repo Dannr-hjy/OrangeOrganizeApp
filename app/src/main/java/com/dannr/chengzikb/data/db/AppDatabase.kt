@@ -25,7 +25,7 @@ import com.dannr.chengzikb.data.model.WeekSet
         MetaEntry::class,
         DayOverride::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -50,7 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // v2：课程/安排拆表。开发期真机上多为试排数据，直接重建最稳妥；
                     // v5：支持多课表。开发期破坏性重建，正式上线前应补 Migration 保留数据。
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
@@ -71,6 +71,14 @@ abstract class AppDatabase : RoomDatabase() {
          * 2) settings 增加 showShortNameInGrid / showShortNameInWidget（默认 0=关，行为与升级前一致）。
          * 两列都带 DEFAULT，纯增量迁移，不动任何既有数据。
          */
+        /** Optional imported clocks; existing sessions keep following their periods. */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE course_sessions ADD COLUMN startMinute INTEGER")
+                db.execSQL("ALTER TABLE course_sessions ADD COLUMN endMinute INTEGER")
+            }
+        }
+
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE courses ADD COLUMN shortName TEXT")

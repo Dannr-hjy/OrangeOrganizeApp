@@ -100,6 +100,8 @@ private data class ArrDraft(
     val end: Int,
     val weekSet: WeekSet,
     val location: String? = null,
+    val startMinute: Int? = null,
+    val endMinute: Int? = null,
 )
 
 private enum class EditorView { SUMMARY, ARRANGEMENT }
@@ -156,7 +158,7 @@ fun CourseEditScreen(
             colorIndex = course.colorIndex
             colorHex = course.colorHex.orEmpty()
             val loaded = vm.loadSessions().map {
-                ArrDraft(it.id, it.dayOfWeek, it.startPeriodIdx, it.endPeriodIdx, it.weekSet(), it.location)
+                ArrDraft(it.id, it.dayOfWeek, it.startPeriodIdx, it.endPeriodIdx, it.weekSet(), it.location, it.startMinute, it.endMinute)
             }.toMutableList()
             // 从“选已有课加到某空格”进入：该时段若尚无安排则预填一条（周次与地点沿用首段，风格一致；仍待“保存”落库）
             val pd = preseedDay
@@ -217,6 +219,8 @@ fun CourseEditScreen(
                 endPeriodIdx = it.end,
                 activeWeeksText = it.weekSet.toText(),
                 location = it.location?.trim()?.ifBlank { null },
+                startMinute = it.startMinute,
+                endMinute = it.endMinute,
             )
         }
         vm.save(
@@ -475,6 +479,8 @@ private fun ArrangementCard(
 ) {
     val first = periods.getOrNull(draft.start)
     val last = periods.getOrNull(draft.end)
+    val startMinute = draft.startMinute ?: first?.startMinute
+    val endMinute = draft.endMinute ?: last?.endMinute
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -487,7 +493,7 @@ private fun ArrangementCard(
         Column(Modifier.weight(1f)) {
             Text(
                 "${WeekMath.weekdayName(draft.day)} · 第${draft.start + 1}-${draft.end + 1}节" +
-                    if (first != null && last != null) "（${clock(first.startMinute)}-${clock(last.endMinute)}）" else "",
+                    if (startMinute != null && endMinute != null) "（${clock(startMinute)}-${clock(endMinute)}）" else "",
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -531,6 +537,7 @@ private fun ArrangementEditor(
     var start by remember { mutableIntStateOf(initial.start) }
     var end by remember { mutableIntStateOf(initial.end) }
     var spanSet by remember { mutableStateOf(initial.start >= 0) }
+    var useImportedClock by remember { mutableStateOf(initial.startMinute != null && initial.endMinute != null) }
 
     val valid = periods.isNotEmpty() && spanSet && !weekSet.isEmpty
 
@@ -603,6 +610,11 @@ private fun ArrangementEditor(
                 Spacer(Modifier.height(16.dp))
 
                 SectionLabel("哪些周开课")
+                if (useImportedClock && initial.startMinute != null && initial.endMinute != null) {
+                    Text("文件中的上课时间：${clock(initial.startMinute)}–${clock(initial.endMinute)}",
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { useImportedClock = false }) { Text("改用作息时间表") }
+                }
                 WeekPicker(totalWeeks = totalWeeks, value = weekSet, onChange = { weekSet = it })
                 Spacer(Modifier.height(20.dp))
 
@@ -667,7 +679,11 @@ private fun ArrangementEditor(
                         }
                     }
                     Surface(
-                        onClick = { onSave(ArrDraft(initial.arrId, day, start, end, weekSet, locationText.trim().ifBlank { null })) },
+                        onClick = {
+                            val keepClock = useImportedClock && start == initial.start && end == initial.end
+                            onSave(ArrDraft(initial.arrId, day, start, end, weekSet, locationText.trim().ifBlank { null },
+                                if (keepClock) initial.startMinute else null, if (keepClock) initial.endMinute else null))
+                        },
                         enabled = valid,
                         shape = RoundedCornerShape(12.dp),
                         color = if (valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,

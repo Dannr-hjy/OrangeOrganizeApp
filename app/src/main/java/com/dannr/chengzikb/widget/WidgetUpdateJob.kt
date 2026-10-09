@@ -21,6 +21,8 @@ import com.dannr.chengzikb.data.db.AppDatabase
 import com.dannr.chengzikb.data.model.AppSettings
 import com.dannr.chengzikb.data.model.MetaEntry
 import com.dannr.chengzikb.data.model.isActiveIn
+import com.dannr.chengzikb.data.model.startMinuteIn
+import com.dannr.chengzikb.data.model.endMinuteIn
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayPlanIndex
 import com.dannr.chengzikb.domain.WeekMath
@@ -120,18 +122,18 @@ class WidgetUpdateJob(private val context: Context) {
             sessions.asSequence()
                 .filter { it.dayOfWeek == dow && it.isActiveIn(week) }
                 .mapNotNull { s ->
-                    val startP = periods.getOrNull(s.startPeriodIdx)
-                    val endP = periods.getOrNull(s.endPeriodIdx)
+                    val startMinute = s.startMinuteIn(periods)
+                    val endMinute = s.endMinuteIn(periods)
                     val course = courseById[s.courseId]
-                    if (startP == null || endP == null || course == null) return@mapNotNull null
+                    if (startMinute == null || endMinute == null || course == null) return@mapNotNull null
                     WidgetEngine.WCourse(
                         courseId = course.id,
                         // 简称开关开启且该课填了简称时用简称（未填仍回退全称）
                         name = course.displayName(settings.showShortNameInWidget),
                         location = s.location,
                         colorArgb = courseColor(course).toArgb(),
-                        startMinute = startP.startMinute,
-                        endMinute = endP.endMinute,
+                        startMinute = startMinute,
+                        endMinute = endMinute,
                     )
                 }
                 .sortedWith(compareBy({ it.startMinute }, { it.courseId }))

@@ -63,10 +63,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 导入 WakeUp 导出的 .ics，分两步走（步骤间左右滑动过渡）：
- *  第 1 步 · 完善课表设置（学期设置 + 作息时间表）→ “下一步”；
- *  第 2 步 · 选择文件导入（完成第 1 步后才可进入）。
- * 选择文件后若当前课表为空则直接替换；非空则选「覆盖当前课表 / 新建课表」。
+ * 确认学期后选择 ICS，预览节次、真实钟点和可选的完整作息，再写入课表。
  */
 @Composable
 fun IcsImportScreen(
@@ -86,14 +83,13 @@ fun IcsImportScreen(
     var parsed by remember { mutableStateOf<IcsImporter.IcsResult?>(null) }
     var overwriteConfirm by remember { mutableStateOf(false) }
     var importedInfo by remember { mutableStateOf<IcsImporter.IcsResult?>(null) } // 导入成功提示
+    var targetHasCourses by remember { mutableStateOf(false) }
 
-    // 第 1 步“完成”判定：学期设置已就绪且作息时间段非空
+    // 学期日期决定周次；文件中的钟点可更新作息，无需预先手工逐节填写。
     val curSettings by app.container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
-    val curPeriods by app.container.periodRepository.all.collectAsStateWithLifecycle(initialValue = emptyList())
     val step1Ready = curSettings != null &&
         (curSettings?.totalWeeks ?: 0) > 0 &&
-        (curSettings?.termStartEpochDay ?: 0L) > 0L &&
-        curPeriods.isNotEmpty()
+        (curSettings?.termStartEpochDay ?: 0L) > 0L
 
     suspend fun currentHasCourses(): Boolean {
         val active = db.metaDao().get(MetaEntry.KEY_ACTIVE_TIMETABLE)?.toLongOrNull()
@@ -158,10 +154,9 @@ fun IcsImportScreen(
             busy = false
             outcome.onSuccess { (result, hasCourses) ->
                 if (result.courses.isEmpty()) {
-                    snackbar.showSnackbar("未识别到课程，请确认文件格式")
-                } else if (!hasCourses) {
-                    doImport(result, overwriteCurrent = true, createNew = false)
+                    snackbar.showSnackbar(result.warnings.firstOrNull() ?: "未识别到本学期课程，请检查文件与学期日期")
                 } else {
+                    targetHasCourses = hasCourses
                     parsed = result
                 }
             }.onFailure { snackbar.showSnackbar("解析失败：${it.message}") }
@@ -206,7 +201,7 @@ fun IcsImportScreen(
                         ) {
                             SectionHeading("第 1 步 · 完善课表设置")
                             Text(
-                                "先确保作息时间与学期设置正确，导入才会落在正确位置。",
+                                "确认开学日期与总周数。导入后会按文件中的上课钟点更新作息；连堂课沿用当前单节时长与课间间隔。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -215,13 +210,13 @@ fun IcsImportScreen(
                                 Column {
                                     GuideRow("学期设置", "开学第一周与总周数", onOpenTerm)
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                    GuideRow("作息时间表", "各节次的起止时间", onOpenPeriods)
+                                    GuideRow("作息时间表", "用于识别节次和课间间隔，文件钟点将在导入时更新", onOpenPeriods)
                                 }
                             }
                             if (!step1Ready) {
                                 Spacer(Modifier.height(10.dp))
                                 Text(
-                                    "学期与作息尚未配置完整，配置完成前无法进行下一步。",
+                                    "请先配置学期开始日期与总周数。",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
@@ -281,7 +276,7 @@ fun IcsImportScreen(
                                     Text("选择 .ics 文件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                     Spacer(Modifier.height(2.dp))
                                     Text(
-                                        if (busy) "正在读取…" else "当前课表为空时直接替换；有课程时可选择覆盖或新建",
+                                        if (busy) "正在读取…" else "先预览课程、节次与上课时间，再确认导入",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -296,7 +291,8 @@ fun IcsImportScreen(
                                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), RoundedCornerShape(12.dp)).padding(12.dp),
                             ) {
                                 Text(
-                                    "✓ 已导入 ${r.courses.size} 门课程 · ${r.sessionCount} 个时间段，可返回课表查看。",
+                                    "✓ 已导入 ${r.courses.size} 门课程 · ${r.sessionCount} 个时间段" +
+                                        (if (r.periods.isNotEmpty()) "，作息时间表已更新。" else "，课程钟点已保存。"),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -308,22 +304,39 @@ fun IcsImportScreen(
                             Spacer(Modifier.height(18.dp))
                             Text("解析结果", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(4.dp))
-                            Text("识别到 ${r.courses.size} 门课程、${r.sessionCount} 个时间段。当前课表已有课程，请选择导入方式：", style = MaterialTheme.typography.bodyMedium)
+                            Text("识别到 ${r.courses.size} 门课程、${r.sessionCount} 个时间段，已读取课程起止时间。请选择导入方式：", style = MaterialTheme.typography.bodyMedium)
+                            if (r.periods.isNotEmpty()) {
+                                Text(if (r.periodsAligned) "将按文件中的课程钟点更新作息时间表，单节时长与课间间隔沿用当前作息。"
+                                    else "文件包含 ${r.periods.size} 节完整作息，将随课程一起导入。", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (r.periodNotes.isNotEmpty()) {
+                                Text(r.periodNotes.joinToString("\n"), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (r.warnings.isNotEmpty()) {
+                                Text("以下内容未能导入：\n" + r.warnings.take(5).joinToString("\n"),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
                             Spacer(Modifier.height(10.dp))
 
                             Surface(
-                                onClick = { overwriteConfirm = true },
+                                onClick = {
+                                    if (targetHasCourses) overwriteConfirm = true
+                                    else doImport(r, overwriteCurrent = true, createNew = false)
+                                },
+                                enabled = !busy,
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Row(Modifier.padding(vertical = 13.dp), horizontalArrangement = Arrangement.Center) {
-                                    Text("覆盖当前课表", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                                    Text(if (targetHasCourses) "覆盖当前课表" else "导入当前课表", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
                             Surface(
                                 onClick = { doImport(r, overwriteCurrent = false, createNew = true) },
+                                enabled = !busy,
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.fillMaxWidth(),
@@ -337,7 +350,8 @@ fun IcsImportScreen(
                             r.courses.take(30).forEach { c ->
                                 val first = c.sessions.firstOrNull()
                                 val detail = first?.let {
-                                    "${WeekMath.weekdayName(it.day)} 第${it.startPeriodIdx + 1}${if (it.endPeriodIdx > it.startPeriodIdx) "-${it.endPeriodIdx + 1}" else ""}节"
+                                    "${WeekMath.weekdayName(it.day)} 第${it.startPeriodIdx + 1}${if (it.endPeriodIdx > it.startPeriodIdx) "-${it.endPeriodIdx + 1}" else ""}节" +
+                                        if (it.startMinute != null && it.endMinute != null) "\n${importClock(it.startMinute)}–${importClock(it.endMinute)}" else ""
                                 } ?: ""
                                 Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
                                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -372,6 +386,8 @@ fun IcsImportScreen(
         )
     }
 }
+
+private fun importClock(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
 
 @Composable
 private fun SectionHeading(text: String) {

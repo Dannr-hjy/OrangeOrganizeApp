@@ -15,6 +15,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BackupRoundTripTest {
+    @Test
+    fun `imported clocks survive backup and restore`() {
+        val session = CourseSession(courseId = 0, dayOfWeek = 1, startPeriodIdx = 0, endPeriodIdx = 1,
+            activeWeeksText = "1-19", startMinute = 500, endMinute = 600)
+        val source = listOf(TableDump("导入课表", settings, periods, listOf(CourseDump(course1, listOf(session)))))
+        assertEquals(session, BackupManager.parse(BackupManager.buildTables(source)).single().courses.single().sessions.single())
+    }
+
+    @Test
+    fun `old backups without imported clocks still follow periods`() {
+        val session = BackupManager.parse(BackupManager.buildTables(singleTable())).single().courses.first().sessions.first()
+        assertEquals(null, session.startMinute)
+        assertEquals(null, session.endMinute)
+    }
 
     private val settings = AppSettings(
         timetableId = 0L,

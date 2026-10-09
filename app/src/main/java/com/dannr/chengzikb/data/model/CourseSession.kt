@@ -32,7 +32,23 @@ data class CourseSession(
     val endPeriodIdx: Int, // 0 基，含端点（>= startPeriodIdx）
     @ColumnInfo(name = "active_weeks_text") val activeWeeksText: String = "",
     val location: String? = null, // 该时段的上课地点（可为空）
-)
+    val startMinute: Int? = null, // ICS 的真实起止时间；手工排课仍跟随作息表
+    val endMinute: Int? = null,
+) {
+    init {
+        require((startMinute == null && endMinute == null) ||
+            (startMinute != null && endMinute != null && startMinute in 0..1439 && endMinute in 0..1439 && startMinute < endMinute)) {
+            "课程起止时间应成对提供，且结束时间晚于开始时间"
+        }
+    }
+}
+
+/** Exact imported clocks take precedence; manual arrangements follow configured periods. */
+fun CourseSession.startMinuteIn(periods: List<PeriodSetting>): Int? =
+    startMinute ?: periods.firstOrNull { it.order == startPeriodIdx }?.startMinute
+
+fun CourseSession.endMinuteIn(periods: List<PeriodSetting>): Int? =
+    endMinute ?: periods.firstOrNull { it.order == endPeriodIdx }?.endMinute
 
 /** 把持久化周次文本解析为周集（异常按空集，编辑流程保证规范） */
 fun CourseSession.weekSet(): WeekSet = runCatching { WeekSet.parse(activeWeeksText) }.getOrDefault(WeekSet.EMPTY)
