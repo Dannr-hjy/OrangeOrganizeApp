@@ -13,3 +13,4 @@ keystore/
 app/build/
 *.jks
 *.apk
+CLAUDE.md
