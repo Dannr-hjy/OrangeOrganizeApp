@@ -43,7 +43,8 @@ fun WeekPage(
     weekStart: LocalDate,
     periods: List<PeriodSetting>,
     placementsByDay: Map<Int, List<WeekView.PlacedCourse>>,
-    effectiveDayByDay: Map<Int, Int?>,
+    effectiveDayByDay: Map<Int, EffectiveDay>,
+    pageWeek: Int,
     shownDays: Int,
     isTodayWeek: Boolean,
     todayDay: Int,
@@ -149,7 +150,7 @@ fun WeekPage(
             }
             // 各天列
             for (d in 1..shownDays) {
-                val effDay = effectiveDayByDay[d]
+                val eff = effectiveDayByDay[d] ?: EffectiveDay.Follow(d, pageWeek)
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -158,8 +159,8 @@ fun WeekPage(
                 ) {
                     DayColumn(
                         column = d,
-                        effectiveDay = effDay ?: d,
-                        isRest = effDay == null,
+                        effective = eff,
+                        pageWeek = pageWeek,
                         periods = periods,
                         tops = tops,
                         placements = placementsByDay[d].orEmpty(),
@@ -168,7 +169,11 @@ fun WeekPage(
                         showLocation = showLocation,
                         showTeacher = showTeacher,
                         showShortName = showShortName,
-                        effectiveDayOf = { col -> effectiveDayByDay[col] },
+                        // 落点列只在「按真实星期、且内容就是本页周」时接受排课，否则弹回
+                        effectiveDayOf = { col ->
+                            (effectiveDayByDay[col] as? EffectiveDay.Follow)
+                                ?.takeIf { it.contentWeek == pageWeek }?.dayOfWeek
+                        },
                         onEmptySlotLongPress = onEmptySlotLongPress,
                         onCourseInfo = onCourseInfo,
                         onCourseDrag = onCourseDrag,
@@ -185,13 +190,20 @@ fun WeekPage(
                 Box(Modifier.width(GridSizes.GutterWidth).fillMaxHeight())
                 for (d in 1..shownDays) {
                     Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                        if (effectiveDayByDay[d] == null) {
-                            Text(
+                        when (effectiveDayByDay[d]) {
+                            is EffectiveDay.Rest -> Text(
                                 "休",
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                             )
+                            is EffectiveDay.Pending -> Text(
+                                "待选周次",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                            )
+                            else -> Unit
                         }
                     }
                 }

@@ -91,6 +91,7 @@ object BackupManager {
             o.put("dateEpochDay", r.dateEpochDay)
             o.put("kind", r.kind)
             o.put("followDayOfWeek", r.followDayOfWeek)
+            r.followWeek?.let { o.put("followWeek", it) }
             a.put(o)
         }
         return a
@@ -245,6 +246,7 @@ object BackupManager {
                 dateEpochDay = epochDay,
                 kind = kind,
                 followDayOfWeek = o.optInt("followDayOfWeek", 1).coerceIn(1, 7),
+                followWeek = o.optInt("followWeek", 0).takeIf { it >= 1 && kind == DayOverride.KIND_FOLLOW },
             )
         }
         return out

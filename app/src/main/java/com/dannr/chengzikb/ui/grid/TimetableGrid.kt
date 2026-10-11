@@ -118,14 +118,20 @@ fun TimetableGrid(
             s.id != excludeId && s.dayOfWeek == day && s.startPeriodIdx <= end && start <= s.endPeriodIdx && s.isActiveIn(settledWeek)
         }
 
-    // 每天实际按哪天的课表上课：值 null = 当天休息（假期）。列位置仍是真实日历列，只有内容是映射后的。
-    val effectiveDays: List<Map<Int, Int?>> = remember(pageCount, termStartMonday, dayPlans) {
+    // 每天实际按哪天的课表上课、取哪一周的内容。列位置仍是真实日历列，只有内容是映射后的。
+    val effectiveDays: List<Map<Int, EffectiveDay>> = remember(pageCount, termStartMonday, dayPlans) {
         (0 until pageCount).map { w ->
+            val pageWeek = w + 1
             val weekStart = termStartMonday.plusWeeks(w.toLong())
             (1..7).associateWith { d ->
                 when (val plan = dayPlans.planFor(weekStart.plusDays((d - 1).toLong()))) {
-                    is DayPlan.Rest -> null
-                    is DayPlan.Follow -> plan.dayOfWeek
+                    is DayPlan.Rest -> EffectiveDay.Rest
+                    is DayPlan.PendingWeek -> EffectiveDay.Pending(plan.dayOfWeek)
+                    is DayPlan.Follow -> EffectiveDay.Follow(
+                        dayOfWeek = plan.dayOfWeek,
+                        // 「补哪一周」：选了具体周次就用它，否则用当天所在的周
+                        contentWeek = plan.sourceWeek ?: pageWeek,
+                    )
                 }
             }
         }
@@ -133,9 +139,13 @@ fun TimetableGrid(
 
     val perWeekPlacements = remember(effectiveOccurrences, effectiveDays, showOtherWeeks) {
         (0 until pageCount).map { w ->
-            effectiveDays[w].mapValues { (_, effDay) ->
-                if (effDay == null) emptyList()
-                else WeekView.placementsForWeek(effectiveOccurrences, w + 1, effDay, showOtherWeeks)
+            effectiveDays[w].mapValues { (_, eff) ->
+                when (eff) {
+                    is EffectiveDay.Rest, is EffectiveDay.Pending -> emptyList()
+                    is EffectiveDay.Follow -> WeekView.placementsForWeek(
+                        effectiveOccurrences, eff.contentWeek, eff.dayOfWeek, showOtherWeeks,
+                    )
+                }
             }
         }
     }
@@ -203,6 +213,7 @@ fun TimetableGrid(
                 periods = periods,
                 placementsByDay = perWeekPlacements[page],
                 effectiveDayByDay = effectiveDays[page],
+                pageWeek = page + 1,
                 shownDays = visibleDays,
                 isTodayWeek = page == (todayWeek - 1),
                 todayDay = WeekMath.dayIndexOf(now.toLocalDate()),

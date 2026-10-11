@@ -25,7 +25,7 @@ import com.dannr.chengzikb.data.model.WeekSet
         MetaEntry::class,
         DayOverride::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -50,7 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // v2：课程/安排拆表。开发期真机上多为试排数据，直接重建最稳妥；
                     // v5：支持多课表。开发期破坏性重建，正式上线前应补 Migration 保留数据。
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
@@ -76,6 +76,18 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE course_sessions ADD COLUMN startMinute INTEGER")
                 db.execSQL("ALTER TABLE course_sessions ADD COLUMN endMinute INTEGER")
+            }
+        }
+
+        /**
+         * v10 → v11：调休「补哪一周」。
+         * day_overrides 增加可空的 follow_week（学期周号，1 基）：指定复制哪一周的该星期课表；
+         * NULL = 跟随当天所在的周（普通日子 / 旧数据 / 该星期各周课表一致）。
+         * 裸可空列、不带 DEFAULT，必须与实体 `follow_week INTEGER` 完全一致，否则启动时 schema 校验失败。
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE day_overrides ADD COLUMN follow_week INTEGER")
             }
         }
 

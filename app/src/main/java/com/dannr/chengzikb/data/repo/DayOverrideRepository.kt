@@ -35,6 +35,8 @@ class DayOverrideRepository(
                     dateEpochDay = date.toEpochDay(),
                     kind = row.kind,
                     followDayOfWeek = row.followDayOfWeek.coerceIn(1, 7),
+                    // 只在「按其它星期上课」时有意义；上界留给渲染端按当前 totalWeeks 兜底
+                    followWeek = row.followWeek?.takeIf { it >= 1 && row.kind == DayOverride.KIND_FOLLOW },
                 ),
             )
         }

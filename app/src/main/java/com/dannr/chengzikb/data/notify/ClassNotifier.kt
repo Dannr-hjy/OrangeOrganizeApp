@@ -21,7 +21,9 @@ import com.dannr.chengzikb.data.model.isActiveIn
 import com.dannr.chengzikb.data.model.startMinuteIn
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayPlanIndex
+import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.domain.WeekView
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -168,10 +170,15 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
         if (periods.isEmpty()) return emptyList()
         val sessions = db.courseSessionDao().getAllByTimetable(active)
         if (sessions.isEmpty()) return emptyList()
-        val courses = db.courseDao().getAllByTimetable(active).associateBy { it.id }
+        val coursesList = db.courseDao().getAllByTimetable(active)
+        val courses = coursesList.associateBy { it.id }
 
-        // 调休：休息日不排提醒、补课日按映射后的星期排——与课表/小组件同一套解析
-        val dayPlans = DayPlanIndex.of(db.dayOverrideDao().getAllByTimetable(active), settings.autoHoliday)
+        // 调休：休息日/待选周次不排提醒、补课日按映射后的星期与所选周次排——与课表/小组件同一套解析
+        val dayPlans = DayPlanIndex.of(
+            db.dayOverrideDao().getAllByTimetable(active),
+            settings.autoHoliday,
+            DayVariants.allFor(WeekView.occurrences(coursesList, sessions), totalWeeks, periods),
+        )
 
         val now = LocalDateTime.now()
         val baseDate = now.toLocalDate()
@@ -179,12 +186,12 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
 
         for (offset in 0..SCHEDULE_DAYS) {
             val date = baseDate.plusDays(offset)
-            val week = WeekMath.weekIndexOf(date, termStart)
+            val plan = dayPlans.planFor(date)
+            // 休息 or 自动补课但还没选复制哪一周 → 不排（没有已确定的课表）
+            if (plan !is DayPlan.Follow) continue
+            val dayOfWeek = plan.dayOfWeek
+            val week = plan.sourceWeek ?: WeekMath.weekIndexOf(date, termStart)
             if (week !in 1..totalWeeks) continue
-            val dayOfWeek = when (val plan = dayPlans.planFor(date)) {
-                is DayPlan.Rest -> continue
-                is DayPlan.Follow -> plan.dayOfWeek
-            }
             for (s in sessions) {
                 if (s.dayOfWeek != dayOfWeek) continue
                 if (!s.isActiveIn(week)) continue

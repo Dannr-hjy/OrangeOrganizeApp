@@ -37,9 +37,11 @@ import com.dannr.chengzikb.OrangeApp
 import com.dannr.chengzikb.data.model.DayOverride
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayPlanIndex
+import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.HolidayScheme
 import com.dannr.chengzikb.domain.HolidaySchemes
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.domain.WeekView
 import com.dannr.chengzikb.domain.toPlan
 import com.dannr.chengzikb.ui.day.DayOverrideDialog
 import java.time.LocalDate
@@ -56,10 +58,20 @@ fun HolidaySchemeScreen(onBack: () -> Unit) {
     val settings by app.container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
     val overrides by app.container.dayOverrideRepository.overrides
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val courses by app.container.courseRepository.allCourses.collectAsStateWithLifecycle(initialValue = emptyList())
+    val sessions by app.container.courseRepository.allSessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val periods by app.container.periodRepository.all.collectAsStateWithLifecycle(initialValue = emptyList())
     val scope = rememberCoroutineScope()
 
     var editing by remember { mutableStateOf<LocalDate?>(null) }
     val autoEnabled = settings?.autoHoliday == true
+    val totalWeeks = settings?.totalWeeks ?: 0
+    val variants = remember(courses, sessions, periods, totalWeeks) {
+        if (totalWeeks > 0) DayVariants.allFor(WeekView.occurrences(courses, sessions), totalWeeks, periods)
+        else emptyMap()
+    }
+    // 本页恒按「自动开启」求值（展示方案本身）；变体表让补课目标星期不一致的日子显示「待选周次」
+    val planIndex = remember(overrides, variants) { DayPlanIndex.of(overrides, autoEnabled = true, variants) }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -112,6 +124,7 @@ fun HolidaySchemeScreen(onBack: () -> Unit) {
                     scheme = scheme,
                     autoEnabled = autoEnabled,
                     overrides = overrides,
+                    planIndex = planIndex,
                     onEdit = { editing = it },
                 )
             }
@@ -132,7 +145,9 @@ fun HolidaySchemeScreen(onBack: () -> Unit) {
         DayOverrideDialog(
             date = date,
             current = overrides.firstOrNull { it.dateEpochDay == date.toEpochDay() },
-            autoPlan = DayPlanIndex.autoOnly(date, autoEnabled),
+            autoPlan = planIndex.autoOnly(date),
+            variantsFor = { d -> variants[d].orEmpty() },
+            dateWeek = settings?.let { WeekMath.weekIndexOf(date, LocalDate.ofEpochDay(it.termStartEpochDay)) } ?: 0,
             onConfirm = { row ->
                 scope.launch { app.container.dayOverrideRepository.set(date, row) }
                 editing = null
@@ -147,6 +162,7 @@ private fun SchemeSection(
     scheme: HolidayScheme,
     autoEnabled: Boolean,
     overrides: List<DayOverride>,
+    planIndex: DayPlanIndex,
     onEdit: (LocalDate) -> Unit,
 ) {
     Spacer(Modifier.height(18.dp))
@@ -207,8 +223,24 @@ private fun SchemeSection(
                 // 手动覆盖优先，其次内置方案。这里**恒按开启**求值：本页展示的是方案本身，
                 // 若按开关求值，关掉开关时每行都会退化成「→ 按周六课表」这种废话。
                 // 开关是否真的生效只体现在强调色上（见下方 inEffect）。
-                val effective = manual?.toPlan() ?: DayPlanIndex.autoOnly(m.date, autoEnabled = true)
+                val effective = manual?.toPlan() ?: planIndex.autoOnly(m.date)
                 val inEffect = manual != null || autoEnabled
+                val effectText = when (effective) {
+                    is DayPlan.Rest -> "休息"
+                    is DayPlan.PendingWeek -> "→ 待选周次"
+                    is DayPlan.Follow -> buildString {
+                        append("→ 按${WeekMath.weekdayName(effective.dayOfWeek)}课表")
+                        effective.sourceWeek?.let { w ->
+                            planIndex.variantsFor(effective.dayOfWeek).firstOrNull { w in it.weeks }
+                                ?.let { append("（${it.label}）") }
+                        }
+                    }
+                }
+                val effectColor = when {
+                    effective is DayPlan.PendingWeek -> MaterialTheme.colorScheme.error
+                    inEffect -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 Surface(
                     onClick = { onEdit(m.date) },
                     shape = RoundedCornerShape(10.dp),
@@ -233,17 +265,10 @@ private fun SchemeSection(
                             }
                         }
                         Text(
-                            when (effective) {
-                                is DayPlan.Rest -> "休息"
-                                is DayPlan.Follow -> "→ 按${WeekMath.weekdayName(effective.dayOfWeek)}课表"
-                            },
+                            effectText,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (inEffect) {
-                                MaterialTheme.colorScheme.tertiary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            color = effectColor,
                         )
                         Text(
                             "  ＞",

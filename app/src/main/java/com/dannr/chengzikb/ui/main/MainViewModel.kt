@@ -15,6 +15,7 @@ import com.dannr.chengzikb.data.repo.PeriodRepository
 import com.dannr.chengzikb.data.repo.SettingsRepository
 import com.dannr.chengzikb.data.repo.TimetableManager
 import com.dannr.chengzikb.domain.DayPlanIndex
+import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.WeekMath
 import com.dannr.chengzikb.domain.WeekView
 import java.time.LocalDate
@@ -45,12 +46,17 @@ data class MainUiState(
      */
     val todayDayOfWeek: Int get() = WeekMath.dayIndexOf(now.toLocalDate())
 
-    /** 日期 → 上法（手动覆盖 > 自动调休方案 > 真实星期），课表/小组件/提醒共用 */
+    /** 日期 → 上法（手动覆盖 > 自动调休方案 > 真实星期），课表/小组件/提醒共用。
+     *  自动调休开启时注入各星期的课表差异分组，以便补课目标星期不一致的日子标为「待选周次」。 */
     val dayPlans: DayPlanIndex
-        get() = if (overrides.isEmpty() && settings?.autoHoliday != true) {
-            DayPlanIndex.EMPTY
-        } else {
-            DayPlanIndex.of(overrides, settings?.autoHoliday == true)
+        get() {
+            val auto = settings?.autoHoliday == true
+            val total = settings?.totalWeeks ?: 0
+            return DayPlanIndex.of(
+                overrides,
+                auto,
+                variantsByDay = if (auto && total > 0) DayVariants.allFor(occurrences, total, periods) else emptyMap(),
+            )
         }
 
     val pageCount: Int get() = settings?.totalWeeks?.coerceAtLeast(1) ?: 20

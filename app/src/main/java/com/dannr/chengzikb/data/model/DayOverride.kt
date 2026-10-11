@@ -12,6 +12,8 @@ import androidx.room.Index
  *
  * [dateEpochDay]：java.time.LocalDate.toEpochDay()。
  * [kind]：0 = 休息（当天无课）；1 = 按 [followDayOfWeek] 的课表上课。
+ * [followWeek]：kind=1 时可选，指明复制**哪一周**（学期周号，1 基）的该星期课表；
+ * 为 null 表示「跟随当天所在的周」（普通日子、旧数据或该星期各周课表一致时无需指定）。
  */
 @Entity(
     tableName = "day_overrides",
@@ -24,6 +26,8 @@ data class DayOverride(
     @ColumnInfo(name = "kind") val kind: Int,
     /** kind=1 时有效：按周几(1..7)的课表上课 */
     @ColumnInfo(name = "follow_day_of_week", defaultValue = "1") val followDayOfWeek: Int = 1,
+    /** kind=1 时可选：复制哪一周（1 基学期周号）的该星期课表；null = 当天所在的周 */
+    @ColumnInfo(name = "follow_week") val followWeek: Int? = null,
 ) {
     companion object {
         const val KIND_REST = 0

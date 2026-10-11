@@ -76,9 +76,11 @@ import com.dannr.chengzikb.util.OemGuide
 import com.dannr.chengzikb.data.model.Course
 import com.dannr.chengzikb.data.model.DayOverride
 import com.dannr.chengzikb.data.model.Occurrence
+import com.dannr.chengzikb.data.model.PeriodSetting
 import com.dannr.chengzikb.data.model.describe
 import com.dannr.chengzikb.data.model.weekSet
 import com.dannr.chengzikb.domain.DayPlanIndex
+import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.WeekMath
 import com.dannr.chengzikb.data.model.startMinuteIn
 import com.dannr.chengzikb.data.model.endMinuteIn
@@ -214,9 +216,10 @@ fun MainScreen(
                 append(it.termStartEpochDay).append(',').append(it.totalWeeks)
                     .append(',').append(if (it.autoHoliday) 1 else 0).append(',')
             }
-            // 调休：休息日不该排提醒、补课日要按映射后的星期排，所以指纹里必须带上
+            // 调休：休息日不该排提醒、补课日要按映射后的星期与所选周次排，所以指纹里必须带上
             state.overrides.forEach { o ->
-                append(o.dateEpochDay).append('-').append(o.kind).append('-').append(o.followDayOfWeek).append(';')
+                append(o.dateEpochDay).append('-').append(o.kind).append('-').append(o.followDayOfWeek)
+                    .append('-').append(o.followWeek ?: 0).append(';')
             }
             append('|')
             state.periods.forEach { p -> append(p.id).append('-').append(p.startMinute).append('-').append(p.endMinute).append(';') }
@@ -299,6 +302,10 @@ fun MainScreen(
             date = date,
             overrides = state.overrides,
             autoEnabled = state.settings?.autoHoliday == true,
+            occurrences = state.occurrences,
+            periods = state.periods,
+            totalWeeks = state.settings?.totalWeeks ?: 0,
+            termStartMonday = state.termStartMonday,
             onConfirm = { row ->
                 vm.setDayOverrideAsync(date, row)
                 editingDate = null
@@ -352,6 +359,10 @@ fun MainScreen(
 
     val s = state.settings
     val monday = state.termStartMonday
+    // 只在输入真正变化时重建（避免 30s 心跳反复触发网格重算）
+    val dayPlans = remember(state.overrides, state.courses, state.sessions, state.periods, state.settings) {
+        state.dayPlans
+    }
 
     AnimatedContent(
         targetState = view,
@@ -379,7 +390,7 @@ fun MainScreen(
                                 showTeacher = s.showTeacher,
                                 showShortName = s.showShortNameInGrid,
                                 showOtherWeeks = s.showOtherWeeks,
-                                dayPlans = state.dayPlans,
+                                dayPlans = dayPlans,
                                 onEmptySlotLongPress = { day, idx -> pendingSlot = EmptySlot(day, idx) },
                                 onEditDay = { editingDate = it },
                                 onCourseInfo = { occ -> infoOcc = occ }, // 点按 → 详情弹窗（编辑按钮在弹窗内）
@@ -543,13 +554,26 @@ private fun DayEditDialogHost(
     date: LocalDate,
     overrides: List<DayOverride>,
     autoEnabled: Boolean,
+    occurrences: List<Occurrence>,
+    periods: List<PeriodSetting>,
+    totalWeeks: Int,
+    termStartMonday: LocalDate?,
     onConfirm: (DayOverride?) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // 各星期的课表差异分组：关自动调休时也要能选周，故独立于 dayPlans 计算
+    val variants = remember(occurrences, periods, totalWeeks) {
+        if (totalWeeks > 0) DayVariants.allFor(occurrences, totalWeeks, periods) else emptyMap()
+    }
+    val planIndex = remember(overrides, autoEnabled, variants) {
+        DayPlanIndex.of(overrides, autoEnabled, variants)
+    }
     DayOverrideDialog(
         date = date,
         current = overrides.firstOrNull { it.dateEpochDay == date.toEpochDay() },
-        autoPlan = DayPlanIndex.autoOnly(date, autoEnabled),
+        autoPlan = planIndex.autoOnly(date),
+        variantsFor = { d -> variants[d].orEmpty() },
+        dateWeek = termStartMonday?.let { WeekMath.weekIndexOf(date, it) } ?: 0,
         onConfirm = onConfirm,
         onDismiss = onDismiss,
     )

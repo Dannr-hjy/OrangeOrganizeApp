@@ -25,7 +25,9 @@ import com.dannr.chengzikb.data.model.startMinuteIn
 import com.dannr.chengzikb.data.model.endMinuteIn
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayPlanIndex
+import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.domain.WeekView
 import com.dannr.chengzikb.domain.WidgetEngine
 import com.dannr.chengzikb.domain.WidgetEngine.FocusKind
 import com.dannr.chengzikb.ui.theme.courseColor
@@ -102,23 +104,25 @@ class WidgetUpdateJob(private val context: Context) {
         var periods = db.periodDao().getAllByTimetable(active)
         if (periods.isEmpty()) periods = Defaults.defaultPeriods()
         val sessions = db.courseSessionDao().getAllByTimetable(active)
-        val courseById = db.courseDao().getAllByTimetable(active).associateBy { it.id }
+        val coursesList = db.courseDao().getAllByTimetable(active)
+        val courseById = coursesList.associateBy { it.id }
         val termStart = LocalDate.ofEpochDay(settings.termStartEpochDay)
         val totalWeeks = settings.totalWeeks.coerceAtLeast(1)
 
-        // 调休：休息日无课、补课日按映射后的星期取课——与课表网格走同一套解析
+        // 调休：休息日/待选周次无课、补课日按映射后的星期与所选周次取课——与课表网格走同一套解析
         val dayPlans = DayPlanIndex.of(
             db.dayOverrideDao().getAllByTimetable(active),
             settings.autoHoliday,
+            DayVariants.allFor(WeekView.occurrences(coursesList, sessions), totalWeeks, periods),
         )
 
         val activeFor: (LocalDate) -> List<WidgetEngine.WCourse> = forDate@{ date ->
-            val week = WeekMath.weekIndexOf(date, termStart)
+            val plan = dayPlans.planFor(date)
+            // 休息 or 自动补课但还没选复制哪一周 → 不显示猜测的课表
+            if (plan !is DayPlan.Follow) return@forDate emptyList()
+            val dow = plan.dayOfWeek
+            val week = plan.sourceWeek ?: WeekMath.weekIndexOf(date, termStart)
             if (week !in 1..totalWeeks) return@forDate emptyList()
-            val dow = when (val plan = dayPlans.planFor(date)) {
-                is DayPlan.Rest -> return@forDate emptyList()
-                is DayPlan.Follow -> plan.dayOfWeek
-            }
             sessions.asSequence()
                 .filter { it.dayOfWeek == dow && it.isActiveIn(week) }
                 .mapNotNull { s ->

@@ -1,10 +1,13 @@
 package com.dannr.chengzikb
 
 import com.dannr.chengzikb.data.model.DayOverride
+import com.dannr.chengzikb.data.model.WeekSet
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayPlanIndex
+import com.dannr.chengzikb.domain.DayVariant
 import com.dannr.chengzikb.domain.HolidaySchemes
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.domain.toPlan
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -179,5 +182,46 @@ class DayPlanTest {
         assertTrue(DayPlanIndex.of(emptyList(), autoEnabled = false).isEmpty)
         assertFalse(DayPlanIndex.of(emptyList(), autoEnabled = true).isEmpty)
         assertFalse(DayPlanIndex.of(listOf(rest(LocalDate.of(2026, 3, 2))), false).isEmpty)
+    }
+
+    /* ---------- 「补哪一周」 ---------- */
+
+    /** 周一在学期内有两种课表：第1-8周 / 第9-16周 */
+    private fun mondayVariants(): Map<Int, List<DayVariant>> = mapOf(
+        1 to listOf(
+            DayVariant(WeekSet.fromRange(1, 8), 1, emptyList()),
+            DayVariant(WeekSet.fromRange(9, 16), 9, emptyList()),
+        ),
+    )
+
+    @Test
+    fun `自动补课日目标星期各周不一致时 标为待选周次`() {
+        // 2026-02-28 周六补周一；周一有 2 种课表 → 不擅自决定
+        val idx = DayPlanIndex.of(emptyList(), autoEnabled = true, variantsByDay = mondayVariants())
+        assertEquals(DayPlan.PendingWeek(1), idx.planFor(LocalDate.of(2026, 2, 28)))
+    }
+
+    @Test
+    fun `手动覆盖带 followWeek 后 待选被消解且手动优先`() {
+        val d = LocalDate.of(2026, 2, 28)
+        val manual = DayOverride(1L, d.toEpochDay(), DayOverride.KIND_FOLLOW, 1, followWeek = 5)
+        val idx = DayPlanIndex.of(listOf(manual), autoEnabled = true, variantsByDay = mondayVariants())
+        assertEquals(DayPlan.Follow(1, 5), idx.planFor(d))
+    }
+
+    @Test
+    fun `目标星期各周一致时不产生待选`() {
+        // 只有一种课表（1 组）→ 无歧义，按当天所在的周
+        val one = mapOf(1 to listOf(DayVariant(WeekSet.fromRange(1, 16), 1, emptyList())))
+        val idx = DayPlanIndex.of(emptyList(), autoEnabled = true, variantsByDay = one)
+        assertEquals(DayPlan.Follow(1, null), idx.planFor(LocalDate.of(2026, 2, 28)))
+    }
+
+    @Test
+    fun `旧数据 followWeek 为空时 按当天所在的周`() {
+        val d = LocalDate.of(2026, 2, 28)
+        val legacy = DayOverride(1L, d.toEpochDay(), DayOverride.KIND_FOLLOW, 1)
+        assertNull(legacy.followWeek)
+        assertEquals(DayPlan.Follow(1, null), legacy.toPlan())
     }
 }

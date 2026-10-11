@@ -64,15 +64,17 @@ private data class DropCandidate(
  *  - 长按后拖动 → 调课（detectDragGesturesAfterLongPress：跟手移动、松手判定落位，冲突则弹回）。
  *
  * 调休相关：[column] 是视觉列号（1..shownDays，只用于把横向位移换算成列），
- * [effectiveDay] 是该列实际按哪天的课表上课——空白格排课要落在它上面，而不是列号上。
- * [isRest] 为真（节假日）时整列不可交互。[effectiveDayOf] 把落点列号翻成生效星期，null = 休息日。
+ * [effective] 是该列实际按哪天的课表上课、内容取哪一周——空白格排课要落在它上面，而不是列号上。
+ * [effectiveDayOf] 把落点列号翻成生效星期，null = 不接受排课（休息/待选/内容不是本页周）。
+ * 只有「按真实星期且内容就是本页周」的列才可交互：其余（休息、待选、复制了别周的课表）
+ * 整列不可排课/拖拽，避免把改动写到错误的周次上。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DayColumn(
     column: Int,
-    effectiveDay: Int,
-    isRest: Boolean,
+    effective: EffectiveDay,
+    pageWeek: Int,
     periods: List<PeriodSetting>,
     tops: List<Dp>,
     placements: List<WeekView.PlacedCourse>,
@@ -88,12 +90,16 @@ fun DayColumn(
     draggingId: Long?,
     onDragActive: (Long?) -> Unit,
 ) {
+    // 无课内容的列（休息/待选）整列灰底；指定了复制周次的列仍有课，只是不可交互
+    val blank = effective !is EffectiveDay.Follow
+    val interactive = effective is EffectiveDay.Follow && effective.contentWeek == pageWeek
+    val followDay = (effective as? EffectiveDay.Follow)?.dayOfWeek ?: column
     val tint = when {
-        isRest -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+        blank -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
         isTodayColumn -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.10f)
         else -> Color.Transparent
     }
-    val bandAlt = if (isTodayColumn && !isRest) {
+    val bandAlt = if (isTodayColumn && !blank) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.05f)
     } else {
         Color.Transparent
@@ -148,7 +154,7 @@ fun DayColumn(
                 .height(dur)
                 .background(if (pressed) pressFill else if (idx % 2 == 0) bandAlt else Color.Transparent)
             Box(
-                modifier = if (isRest) {
+                modifier = if (!interactive) {
                     band
                 } else {
                     band.combinedClickable(
@@ -158,7 +164,7 @@ fun DayColumn(
                         onLongClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             // 传给上层的是**生效星期**：调休日排在周六列的课，其实属于周一
-                            onEmptySlotLongPress(effectiveDay, idx)
+                            onEmptySlotLongPress(followDay, idx)
                         },
                     )
                 },
@@ -198,7 +204,7 @@ fun DayColumn(
                     .zIndex(if (isDragging.value) 6f else 0f)
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
                     .then(
-                        if (canDrag && !isRest) {
+                        if (canDrag && interactive) {
                             Modifier.pointerInput(s.id, column, periods, placements) {
                                 var accX = 0f
                                 var accY = 0f

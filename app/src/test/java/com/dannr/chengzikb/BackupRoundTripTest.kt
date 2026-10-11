@@ -119,6 +119,33 @@ class BackupRoundTripTest {
     }
 
     @Test
+    fun `带 followWeek 的调休原样往返`() {
+        val d = LocalDate.of(2026, 2, 28)
+        val overrides = listOf(
+            DayOverride(0L, d.toEpochDay(), DayOverride.KIND_FOLLOW, 1, followWeek = 9),
+        )
+        val json = BackupManager.buildTables(
+            listOf(TableDump("我的课表", settings.copy(autoHoliday = true), periods, emptyList(), overrides)),
+        )
+        val back = BackupManager.parse(json)[0]
+        assertEquals(overrides, back.dayOverrides)
+        assertEquals(9, back.dayOverrides.single().followWeek)
+    }
+
+    @Test
+    fun `旧备份的调休行缺 followWeek 时解析为空`() {
+        val legacy = """
+            {"version":4,"exportedAt":1,"tables":[{"name":"旧课表","settings":{
+              "termStartEpochDay":20000,"totalWeeks":18},
+              "periods":[],"courses":[],
+              "dayOverrides":[{"dateEpochDay":20000,"kind":1,"followDayOfWeek":3}]}]}
+        """.trimIndent()
+        val row = BackupManager.parse(legacy)[0].dayOverrides.single()
+        assertEquals(3, row.followDayOfWeek)
+        assertEquals(null, row.followWeek)
+    }
+
+    @Test
     fun `旧备份缺字段时按自动调休关 无手动覆盖解析`() {
         // v4 结构但完全没有 autoHoliday / dayOverrides —— 模拟升级前导出的备份
         val legacy = """
