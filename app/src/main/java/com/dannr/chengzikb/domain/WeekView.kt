@@ -28,16 +28,17 @@ object WeekView {
     fun activeOnDay(all: List<Occurrence>, weekIdx: Int, day: Int): List<Occurrence> =
         all.filter { it.session.dayOfWeek == day && it.session.isActiveIn(weekIdx) }
 
-    /** 某天开课安排 → lane 排布 */
+    /** 某天开课安排 → lane 排布。lane 按“安排”而非“课程”分配：
+     *  同一门课在同一时段的不同周可能是两条独立安排（如中途换教室），它们会在同一周内同时出现。 */
     fun layoutDay(occurrencesOnDay: List<Occurrence>): List<PlacedCourse> {
         if (occurrencesOnDay.isEmpty()) return emptyList()
         val intervals = occurrencesOnDay.map {
             LaneLayout.Interval(it.course.id, it.session.startPeriodIdx, it.session.endPeriodIdx)
         }
         val placements = LaneLayout.layout(intervals)
-        return occurrencesOnDay.mapNotNull { o ->
-            placements.firstOrNull { it.courseId == o.course.id }
-                ?.let { PlacedCourse(o.course, o.session, it.lane, it.lanes) }
+        return occurrencesOnDay.mapIndexed { i, o ->
+            val p = placements[i]
+            PlacedCourse(o.course, o.session, p.lane, p.lanes)
         }
     }
 

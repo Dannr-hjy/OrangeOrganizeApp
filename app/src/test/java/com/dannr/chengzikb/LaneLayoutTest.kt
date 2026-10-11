@@ -50,6 +50,14 @@ class LaneLayoutTest {
     }
 
     @Test
+    fun `同一门课的两条同槽位安排也分列不互相遮挡`() {
+        // 中途换教室：同一门课在同一时段的两条独立安排（courseId 相同）必须各占一列
+        val out = place(listOf(1L to 1..2, 1L to 1..2))
+        assertEquals(2, out[0].lanes)
+        assertEquals(setOf(0, 1), out.map { it.lane }.toSet())
+    }
+
+    @Test
     fun `空输入`() {
         assertEquals(emptyList<LaneLayout.Placement>(), LaneLayout.layout(emptyList()))
     }
