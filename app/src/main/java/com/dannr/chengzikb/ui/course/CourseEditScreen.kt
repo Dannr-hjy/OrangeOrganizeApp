@@ -83,8 +83,11 @@ import com.dannr.chengzikb.data.model.WeekSet
 import com.dannr.chengzikb.data.model.describe
 import com.dannr.chengzikb.data.model.weekSet
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.ui.theme.LocalDarkTheme
+import com.dannr.chengzikb.ui.theme.LocalLowSaturation
 import com.dannr.chengzikb.ui.theme.courseFillColor
 import com.dannr.chengzikb.ui.theme.formatColorHex
+import com.dannr.chengzikb.ui.theme.mutedCourseTone
 import com.dannr.chengzikb.ui.theme.parseHexColor
 
 /**
@@ -322,6 +325,9 @@ fun CourseEditScreen(
             Spacer(Modifier.height(8.dp))
             SectionLabel("课程颜色")
             val customColor = parseHexColor(colorHex)
+            // 低饱和模式下，预设格显示低饱和版：选色时看到的就跟课表格子里的实际效果一致
+            val lowSat = LocalLowSaturation.current
+            val dark = LocalDarkTheme.current
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 // 7 个预设色
                 for (i in 0 until 7) {
@@ -331,7 +337,7 @@ fun CourseEditScreen(
                             .size(30.dp)
                             .then(if (sel) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
                             .clip(CircleShape)
-                            .background(courseFillColor(i))
+                            .background(courseFillColor(i, lowSat, dark))
                             .clickable { colorIndex = i; colorHex = "" },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -345,8 +351,10 @@ fun CourseEditScreen(
                         .then(if (customColor != null) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
                         .clip(CircleShape)
                         .background(
-                            if (customColor != null) customColor
-                            else Color.Transparent,
+                            // 自定义色也显示低饱和版，与它在课表格子里的实际呈现一致
+                            if (customColor != null) {
+                                if (lowSat) mutedCourseTone(customColor, dark) else customColor
+                            } else Color.Transparent,
                         )
                         .then(
                             if (customColor == null) {

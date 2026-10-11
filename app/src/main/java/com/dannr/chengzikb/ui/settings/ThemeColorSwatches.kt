@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.dannr.chengzikb.ui.theme.HSVColorPickerDialog
 import com.dannr.chengzikb.ui.theme.formatColorHex
+import com.dannr.chengzikb.ui.theme.mutedThemeColor
 import com.dannr.chengzikb.ui.theme.parseHexColor
 
 /** 主题色被切换多少次后解锁隐藏的炫彩主题 */
@@ -46,6 +47,8 @@ private val RainbowSweep = listOf(
  * 主题色选择：几个预设色 + 一个打开自由色板的彩格。返回 null 表示“默认橙”。
  * [rainbowUnlocked] 为真时（切换主题色 [ThemeSwitchUnlockCount] 次后）在末尾多出一枚炫彩格；
  * [rainbowSelected] 为真时炫彩生效，全部预设色/自定义色取消选中。
+ * [lowSaturation] 为真时预设格**显示**低饱和版（选了之后界面真正会变成的样子）；
+ * 点选写入的仍是原始色，关掉开关即还原，不受影响。
  */
 @Composable
 fun ThemeColorSwatches(
@@ -54,6 +57,7 @@ fun ThemeColorSwatches(
     rainbowUnlocked: Boolean = false,
     rainbowSelected: Boolean = false,
     onPickRainbow: () -> Unit = {},
+    lowSaturation: Boolean = false,
 ) {
     var showPicker by remember { mutableStateOf(false) }
     val defaultColor = Color(0xFF9A4800)
@@ -83,7 +87,7 @@ fun ThemeColorSwatches(
                         .size(30.dp)
                         .then(if (sel) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
                         .clip(CircleShape)
-                        .background(color)
+                        .background(if (lowSaturation) mutedThemeColor(color) else color)
                         .clickable { onPick(if (isDefault) null else formatColorHex(color)) },
                     contentAlignment = Alignment.Center,
                 ) {

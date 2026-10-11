@@ -36,6 +36,8 @@ import com.dannr.chengzikb.OrangeApp
 import com.dannr.chengzikb.data.model.Course
 import com.dannr.chengzikb.data.model.CourseSession
 import com.dannr.chengzikb.domain.WeekMath
+import com.dannr.chengzikb.ui.theme.LocalDarkTheme
+import com.dannr.chengzikb.ui.theme.LocalLowSaturation
 import com.dannr.chengzikb.ui.theme.courseColor
 
 /**
@@ -125,7 +127,10 @@ private fun CoursePickRow(
         Box(
             Modifier
                 .size(width = 10.dp, height = 40.dp)
-                .background(courseColor(course), RoundedCornerShape(4.dp))
+                .background(
+                    courseColor(course, LocalLowSaturation.current, LocalDarkTheme.current),
+                    RoundedCornerShape(4.dp),
+                )
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {

@@ -137,7 +137,8 @@ class WidgetUpdateJob(private val context: Context) {
                         // 简称开关开启且该课填了简称时用简称（未填仍回退全称）
                         name = course.displayName(settings.showShortNameInWidget),
                         location = s.location,
-                        colorArgb = courseColor(course).toArgb(),
+                        // 非 Compose：低饱和开关与明暗直接取自设置，走与课表网格同一套变换
+                        colorArgb = courseColor(course, settings.lowSaturation, isWidgetDark(settings)).toArgb(),
                         startMinute = startMinute,
                         endMinute = endMinute,
                     )

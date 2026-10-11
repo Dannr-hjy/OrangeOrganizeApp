@@ -17,8 +17,8 @@ android {
         // minSdk 26 = Android 8.0：可直接使用 java.time，无需 core-library-desugaring
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.6.1"
+        versionCode = 13
+        versionName = "1.6.2"
         vectorDrawables { useSupportLibrary = true }
     }
 

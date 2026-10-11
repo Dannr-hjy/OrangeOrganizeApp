@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dannr.chengzikb.data.model.Course
+import com.dannr.chengzikb.ui.theme.LocalDarkTheme
+import com.dannr.chengzikb.ui.theme.LocalLowSaturation
 import com.dannr.chengzikb.ui.theme.courseColor
 
 /**
@@ -70,7 +72,10 @@ fun CourseListScreen(
                 Box(
                     Modifier
                         .size(width = 10.dp, height = 40.dp)
-                        .background(courseColor(course), RoundedCornerShape(4.dp))
+                        .background(
+                            courseColor(course, LocalLowSaturation.current, LocalDarkTheme.current),
+                            RoundedCornerShape(4.dp),
+                        )
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {

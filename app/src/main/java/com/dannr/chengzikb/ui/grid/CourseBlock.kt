@@ -22,6 +22,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dannr.chengzikb.domain.WeekView
+import com.dannr.chengzikb.ui.theme.LocalDarkTheme
+import com.dannr.chengzikb.ui.theme.LocalLowSaturation
 import com.dannr.chengzikb.ui.theme.courseColor
 import com.dannr.chengzikb.ui.theme.courseTextColor
 
@@ -48,8 +50,11 @@ fun CourseBlock(
     val title = course.displayName(showShortName)
     val location = placed.session.location // 地点逐安排
     val ghost = placed.ghost
-    val fill = courseColor(course).let { if (ghost) it.copy(alpha = 0.30f) else it }
-    val text = courseTextColor(course).let { if (ghost) it.copy(alpha = 0.55f) else it }
+    // 低饱和模式：格子换成同色系的低饱和浅色/暗调（只影响显示，课程原色不落库改动）
+    val lowSat = LocalLowSaturation.current
+    val dark = LocalDarkTheme.current
+    val fill = courseColor(course, lowSat, dark).let { if (ghost) it.copy(alpha = 0.30f) else it }
+    val text = courseTextColor(course, lowSat, dark).let { if (ghost) it.copy(alpha = 0.55f) else it }
     val wide = placed.lanes == 1
     // 圆角：narrow（显示周末、列更窄）时整体收小，避免窄卡被圆角吃掉太多面积
     val corner = when {

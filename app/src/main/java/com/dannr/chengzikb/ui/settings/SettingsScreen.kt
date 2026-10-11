@@ -94,6 +94,7 @@ fun SettingsScreen(
             val rainbowUnlocked = (themeSwitchCount ?: 0) >= ThemeSwitchUnlockCount
             ThemeColorSwatches(
                 seedHex = settings.themeSeedHex,
+                lowSaturation = settings.lowSaturation,
                 rainbowUnlocked = rainbowUnlocked,
                 rainbowSelected = settings.rainbowTheme,
                 onPick = { hex ->

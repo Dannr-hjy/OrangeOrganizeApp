@@ -9,9 +9,11 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -241,8 +243,34 @@ private val courseBlockFills = listOf(
     Color(0xFF0B7B9C), // 深青
 )
 
-/** 按课程 colorIndex 取填充色（自动轮替 / 手动换色共用） */
-fun courseFillColor(index: Int): Color = courseBlockFills[((index % courseBlockFills.size) + courseBlockFills.size) % courseBlockFills.size]
+/**
+ * 低饱和课程色：保持色相，按明暗两套配方压饱和。
+ * 亮色 → 浅色低饱和（浅杏 / 浅豆绿 / 浅天蓝…），配深字；暗色 → 同色系低饱和暗调，配白字。
+ *
+ * ⚠️ 只作用于**显示**：课程原本的颜色（colorIndex / colorHex）从不改写，
+ * 关掉低饱和开关即原样还原。
+ */
+fun mutedCourseTone(c: Color, dark: Boolean): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(c.toArgb(), hsv)
+    if (hsv[1] < 0.02f) return c // 近无彩色（灰/白/黑）没有可压的饱和度，原样返回
+    hsv[1] = (hsv[1] * if (dark) MutedCourseDarkSat else MutedCourseLightSat).coerceIn(0f, 1f)
+    hsv[2] = if (dark) {
+        (hsv[2] * MutedCourseDarkValue).coerceIn(0.20f, 0.42f)
+    } else {
+        hsv[2].coerceAtLeast(MutedCourseLightValue)
+    }
+    val alpha = (c.alpha * 255f).toInt().coerceIn(0, 255)
+    return Color(android.graphics.Color.HSVToColor(alpha, hsv))
+}
+
+/** 低饱和模式下某个颜色的最终显示色：不开低饱和就原样返回（保证关闭后逐字节还原） */
+private fun muted(c: Color, lowSaturation: Boolean, dark: Boolean): Color =
+    if (lowSaturation) mutedCourseTone(c, dark) else c
+
+/** 按课程 colorIndex 取填充色（自动轮替 / 手动换色共用）；[lowSaturation] 时转成低饱和色 */
+fun courseFillColor(index: Int, lowSaturation: Boolean = false, dark: Boolean = false): Color =
+    muted(courseBlockFills[((index % courseBlockFills.size) + courseBlockFills.size) % courseBlockFills.size], lowSaturation, dark)
 
 /** 依据背景亮度自动选文字色：深底用白、浅底用近黑（对比清晰） */
 fun blockTextColor(fill: Color): Color =
@@ -269,12 +297,28 @@ fun formatColorHex(c: Color): String {
     return "#%08X".format(l)
 }
 
-/** 解析一门课的实际显示色：优先自定义色，其次调色板索引 */
-fun courseColor(course: Course): Color =
-    course.colorHex?.let { parseHexColor(it) } ?: courseFillColor(course.colorIndex)
+/**
+ * 解析一门课的实际显示色：优先自定义色，其次调色板索引。
+ * [lowSaturation] 时连同自定义色一起转成低饱和色——整屏统一，不留一处刺眼；
+ * 原始 hex 照旧存在库里，关闭开关后完全还原。
+ */
+fun courseColor(course: Course, lowSaturation: Boolean = false, dark: Boolean = false): Color {
+    val raw = course.colorHex?.let { parseHexColor(it) } ?: courseFillColor(course.colorIndex)
+    return muted(raw, lowSaturation, dark)
+}
 
-/** 依据课程色的亮度选文字色（白/黑自适应） */
-fun courseTextColor(course: Course): Color = blockTextColor(courseColor(course))
+/** 依据课程色的亮度选文字色（白/黑自适应）；跟随 [courseColor] 的低饱和结果 */
+fun courseTextColor(course: Course, lowSaturation: Boolean = false, dark: Boolean = false): Color =
+    blockTextColor(courseColor(course, lowSaturation, dark))
+
+/**
+ * 低饱和模式下**主题色预设格**应显示的色。与 [applyLowSaturation] 同一配方（只降饱和、不动亮度），
+ * 即"选了这个色之后界面真正会变成的样子"。
+ *
+ * 特意不复用 [mutedCourseTone]：课程格是"浅色底 + 深字"，主题是"整块色板统一降饱和"，
+ * 两者真实结果本就不同，各显示各自的结果才不算骗人。
+ */
+fun mutedThemeColor(c: Color): Color = desaturate(c, LowSaturationFactor)
 
 /* ---------- 形状 ---------- */
 
@@ -289,9 +333,27 @@ private val OrangeShapes = Shapes(
 /** 低饱和主题：整块色板的饱和度统一压到这个比例 */
 private const val LowSaturationFactor = 0.45f
 
+/**
+ * 低饱和课程色配方：亮色 = 压饱和 + 提亮成浅色（深字可读）；暗色 = 压饱和 + 压暗成同色系暗调（白字可读）。
+ * 系数照设计示例色反推，实机观感偏淡/偏浓时只调这里。
+ */
+private const val MutedCourseLightSat = 0.20f
+private const val MutedCourseLightValue = 0.95f
+private const val MutedCourseDarkSat = 0.50f
+private const val MutedCourseDarkValue = 0.35f
+
 /** 炫彩主题的轮转节奏：每 [RainbowStepMillis] 毫秒转 [RainbowStepDegrees] 度（约 7 秒一整圈） */
 private const val RainbowStepMillis = 80L
 private const val RainbowStepDegrees = 4f
+
+/**
+ * 当前是否启用低饱和配色 / 是否为暗色主题，由 [OrangeKeBiaoTheme] 提供。
+ *
+ * 课程格子的颜色不属于 MaterialTheme 语义色，取色处（课表格子、课程列表、编辑页预设格…）
+ * 读这两个值即可，不必逐层透传参数。桌面小组件不是 Compose，改用显式传参。
+ */
+val LocalLowSaturation = staticCompositionLocalOf { false }
+val LocalDarkTheme = staticCompositionLocalOf { false }
 
 /**
  * 全局主题：按设置选择 浅色 / 深色 / 跟随系统；
@@ -332,10 +394,15 @@ fun OrangeKeBiaoTheme(
             if (lowSaturation) applyLowSaturation(scheme) else scheme
         }
     }
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography(),
-        shapes = OrangeShapes,
-        content = content,
-    )
+    CompositionLocalProvider(
+        LocalLowSaturation provides lowSaturation,
+        LocalDarkTheme provides dark,
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography(),
+            shapes = OrangeShapes,
+            content = content,
+        )
+    }
 }
