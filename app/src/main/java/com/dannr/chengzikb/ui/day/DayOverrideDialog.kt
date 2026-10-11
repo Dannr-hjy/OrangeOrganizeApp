@@ -7,12 +7,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -286,23 +291,48 @@ fun DayOverrideDialog(
     }
 }
 
-/** 「复制哪一周的课表」一行：显示当前那一套 + 右侧箭头，点开二级弹窗去改 */
+/**
+ * 「复制哪一周的课表」的**入口行**——点它进二级弹窗。
+ *
+ * 它是某张一级卡片的「下一层」，不能再套用一级那种整块填充的卡片，否则两层看起来一样、
+ * 分不出哪个是选项哪个是入口。改用本 App 既有的下钻行样式（扁平 + 缩进 + 右侧箭头图标，
+ * 见 SettingsScreen 的 NavRow），一眼就看出它挂在上面那张卡片底下。
+ */
 @Composable
 private fun WeekChoiceRow(
     variants: List<DayVariant>,
     chosenWeek: Int?,
     onClick: () -> Unit,
 ) {
-    ChoiceRow(
-        title = "复制哪一周的课表",
-        subtitle = chosenWeek
-            ?.let { w -> variants.firstOrNull { w in it.weeks } }
-            ?.let { "${it.label} · ${variantPreview(it)}" }
-            ?: "该星期的课表各周不一样，点击选择",
-        selected = false,
-        onClick = onClick,
-        trailing = "＞",
-    )
+    val chosen = chosenWeek?.let { w -> variants.firstOrNull { w in it.weeks } }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 18.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+            Text(
+                "复制哪一周的课表",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                chosen?.let { "${it.label} · ${variantPreview(it)}" }
+                    ?: "该星期的课表各周不一样，点击选择",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 /**
@@ -376,7 +406,6 @@ private fun ChoiceRow(
     subtitle: String,
     selected: Boolean,
     onClick: () -> Unit,
-    trailing: String? = null,
 ) {
     Surface(
         onClick = onClick,
@@ -388,42 +417,29 @@ private fun ChoiceRow(
         },
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.Start,
         ) {
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                )
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-            if (trailing != null) {
-                Text(
-                    trailing,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
         }
     }
 }
