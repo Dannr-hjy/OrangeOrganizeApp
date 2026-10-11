@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -260,9 +263,8 @@ fun DayOverrideDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     pickerVariants.forEach { v ->
-                        ChoiceRow(
-                            title = v.label,
-                            subtitle = variantPreview(v),
+                        WeekOptionRow(
+                            variant = v,
                             selected = selectedWeek == v.representativeWeek,
                             onClick = {
                                 selectedWeek = v.representativeWeek
@@ -301,6 +303,53 @@ private fun WeekChoiceRow(
         onClick = onClick,
         trailing = "＞",
     )
+}
+
+/**
+ * 二级弹窗里的一个周次选项。刻意不走一级那种「整块填充的卡片」，改用**单选列表**样式
+ * （前置圆点 + 透明底 + 选中时主色文字），好让"从列表里挑一个"和"选上法"两层一眼分得开。
+ */
+@Composable
+private fun WeekOptionRow(
+    variant: DayVariant,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        } else {
+            Color.Transparent
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = selected, onClick = null)
+            Spacer(Modifier.width(6.dp))
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Text(
+                    variant.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+                Text(
+                    variantPreview(variant),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 /** 选周项的副标题：代表周该星期上哪些课 */
