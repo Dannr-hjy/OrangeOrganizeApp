@@ -61,9 +61,14 @@ fun DayOverrideDialog(
     onDismiss: () -> Unit,
 ) {
     val realDay = WeekMath.dayIndexOf(date)
+    val autoFollow = autoPlan as? DayPlan.Follow
+
+    /** 自动方案判定的调休补课目标星期（目标星期 ≠ 当天真实星期，见 HolidaySchemes）；不是补课日则为 null。 */
+    val autoMakeupDay = autoFollow?.takeIf { it.dayOfWeek != realDay }?.dayOfWeek
+
     val initFollowDay = remember(date, current) {
         current?.takeIf { it.kind == DayOverride.KIND_FOLLOW }?.followDayOfWeek
-            ?: (autoPlan as? DayPlan.Follow)?.dayOfWeek
+            ?: autoMakeupDay
             ?: realDay
     }
     var mode by remember(date, current) {
@@ -88,15 +93,24 @@ fun DayOverrideDialog(
         if (vs.size < 2) return null
         val kept = current?.takeIf { it.kind == DayOverride.KIND_FOLLOW }?.followWeek
         if (kept != null && vs.any { kept in it.weeks }) return kept
-        val auto = autoPlan as? DayPlan.Follow
-        val autoWeek = auto?.takeIf { it.dayOfWeek == d }?.sourceWeek
-        // 「目标星期 ≠ 当天真实星期」即内置方案判定的调休补课日（见 HolidaySchemes）：自动方案已替用户做过决定
-        val autoDecided = auto != null && auto.dayOfWeek != realDay
-        if (current != null || autoDecided) {
+        val autoWeek = autoFollow?.takeIf { it.dayOfWeek == d }?.sourceWeek
+        // d == autoMakeupDay 即内置方案判定的调休补课日（见 HolidaySchemes）：自动方案已替用户做过决定
+        if (current != null || d == autoMakeupDay) {
             return autoWeek?.takeIf { w -> vs.any { w in it.weeks } }
                 ?: DayVariants.nearestWeek(vs, dateWeek)
         }
         return null
+    }
+
+    /**
+     * 落库时该存哪个复制周次：该星期有多套课表 → 存 [week]（用户选的或自动挑的）；
+     * 只有一套 → 沿用自动方案为这天指定的周次（自动可能因「当天所在的周没课」而指定过），
+     * 都没有则 null = 跟随当天所在的周。
+     */
+    fun storedWeekFor(d: Int, week: Int?): Int? {
+        val vs = variantsFor(d)
+        if (vs.size >= 2) return week
+        return autoFollow?.takeIf { it.dayOfWeek == d }?.sourceWeek
     }
 
     var selectedWeek by remember(date, current) { mutableStateOf(defaultWeekFor(initFollowDay)) }
@@ -104,6 +118,13 @@ fun DayOverrideDialog(
 
     val variants = if (mode == MODE_FOLLOW) variantsFor(followDay) else emptyList()
     val needWeekChoice = mode == MODE_FOLLOW && variants.size >= 2
+
+    // 自动调休已经替这一天挑好了一周。即便停在「按正常课表」，也要把「复制哪一周」摆出来，
+    // 否则用户看不到自动挑的是哪一周、更没法改。（该星期只有一套课表时本就无从选择，不显示。）
+    val autoWeekVariants = autoMakeupDay?.let { variantsFor(it) }.orEmpty()
+    val showAutoWeekChoice = mode == MODE_DEFAULT && autoWeekVariants.size >= 2
+    /** 二级弹窗要列的那组课表：手动按星期时是选中的那天，否则是自动调休的目标星期 */
+    val pickerVariants = if (mode == MODE_FOLLOW) variants else autoWeekVariants
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -121,6 +142,13 @@ fun DayOverrideDialog(
                     selected = mode == MODE_DEFAULT,
                     onClick = { mode = MODE_DEFAULT },
                 )
+                if (showAutoWeekChoice) {
+                    WeekChoiceRow(
+                        variants = autoWeekVariants,
+                        chosenWeek = chosenWeek,
+                        onClick = { showWeekPicker = true },
+                    )
+                }
                 ChoiceRow(
                     title = "设为休息",
                     subtitle = "当天没有任何课",
@@ -171,15 +199,10 @@ fun DayOverrideDialog(
                     }
                     if (needWeekChoice) {
                         Spacer(Modifier.height(4.dp))
-                        ChoiceRow(
-                            title = "复制哪一周的课表",
-                            subtitle = chosenWeek
-                                ?.let { w -> variants.firstOrNull { w in it.weeks } }
-                                ?.let { "${it.label} · ${variantPreview(it)}" }
-                                ?: "该星期的课表各周不一样，点击选择",
-                            selected = false,
+                        WeekChoiceRow(
+                            variants = variants,
+                            chosenWeek = chosenWeek,
                             onClick = { showWeekPicker = true },
-                            trailing = "＞",
                         )
                     }
                     Text(
@@ -207,7 +230,7 @@ fun DayOverrideDialog(
                                 dateEpochDay = date.toEpochDay(),
                                 kind = DayOverride.KIND_FOLLOW,
                                 followDayOfWeek = followDay,
-                                followWeek = if (needWeekChoice) selectedWeek else null,
+                                followWeek = storedWeekFor(followDay, selectedWeek),
                             ),
                         )
                         else -> onConfirm(null)
@@ -236,13 +259,19 @@ fun DayOverrideDialog(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    variants.forEach { v ->
+                    pickerVariants.forEach { v ->
                         ChoiceRow(
                             title = v.label,
                             subtitle = variantPreview(v),
                             selected = selectedWeek == v.representativeWeek,
                             onClick = {
                                 selectedWeek = v.representativeWeek
+                                // 从「按正常课表」直接改周次 = 明确要按自动那天的课表上课，
+                                // 切到该模式，好让界面如实反映这是一次手动改法。
+                                if (mode != MODE_FOLLOW) {
+                                    autoMakeupDay?.let { followDay = it }
+                                    mode = MODE_FOLLOW
+                                }
                                 showWeekPicker = false
                             },
                         )
@@ -253,6 +282,25 @@ fun DayOverrideDialog(
             dismissButton = { TextButton(onClick = { showWeekPicker = false }) { Text("取消") } },
         )
     }
+}
+
+/** 「复制哪一周的课表」一行：显示当前那一套 + 右侧箭头，点开二级弹窗去改 */
+@Composable
+private fun WeekChoiceRow(
+    variants: List<DayVariant>,
+    chosenWeek: Int?,
+    onClick: () -> Unit,
+) {
+    ChoiceRow(
+        title = "复制哪一周的课表",
+        subtitle = chosenWeek
+            ?.let { w -> variants.firstOrNull { w in it.weeks } }
+            ?.let { "${it.label} · ${variantPreview(it)}" }
+            ?: "该星期的课表各周不一样，点击选择",
+        selected = false,
+        onClick = onClick,
+        trailing = "＞",
+    )
 }
 
 /** 选周项的副标题：代表周该星期上哪些课 */
