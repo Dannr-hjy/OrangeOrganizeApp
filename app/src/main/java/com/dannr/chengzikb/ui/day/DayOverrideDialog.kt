@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.dannr.chengzikb.data.model.DayOverride
 import com.dannr.chengzikb.domain.DayPlan
 import com.dannr.chengzikb.domain.DayVariant
+import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.WeekMath
 import java.time.LocalDate
 
@@ -60,7 +64,6 @@ fun DayOverrideDialog(
     val initFollowDay = remember(date, current) {
         current?.takeIf { it.kind == DayOverride.KIND_FOLLOW }?.followDayOfWeek
             ?: (autoPlan as? DayPlan.Follow)?.dayOfWeek
-            ?: (autoPlan as? DayPlan.PendingWeek)?.dayOfWeek
             ?: realDay
     }
     var mode by remember(date, current) {
@@ -73,15 +76,25 @@ fun DayOverrideDialog(
         )
     }
     var followDay by remember(date, current) { mutableStateOf(initFollowDay) }
+    var showWeekPicker by remember(date) { mutableStateOf(false) }
 
-    /** 选周的默认值：多组时优先沿用已存周次；重开旧数据/自动待选则取「当天所在的周」那一组；新建留空强制选择。 */
+    /**
+     * 选周的默认值：多组时优先沿用已存周次，其次沿用自动方案定下的周次；
+     * 自动方案没指定周次（当天所在的周本来就有课）时取「离当天所在周最近」的那一组。
+     * 普通日子上新建的手动改法仍留空强制选择。
+     */
     fun defaultWeekFor(d: Int): Int? {
         val vs = variantsFor(d)
         if (vs.size < 2) return null
         val kept = current?.takeIf { it.kind == DayOverride.KIND_FOLLOW }?.followWeek
         if (kept != null && vs.any { kept in it.weeks }) return kept
-        if (current != null || autoPlan is DayPlan.PendingWeek) {
-            return vs.firstOrNull { dateWeek in it.weeks }?.representativeWeek ?: vs.first().representativeWeek
+        val auto = autoPlan as? DayPlan.Follow
+        val autoWeek = auto?.takeIf { it.dayOfWeek == d }?.sourceWeek
+        // 「目标星期 ≠ 当天真实星期」即内置方案判定的调休补课日（见 HolidaySchemes）：自动方案已替用户做过决定
+        val autoDecided = auto != null && auto.dayOfWeek != realDay
+        if (current != null || autoDecided) {
+            return autoWeek?.takeIf { w -> vs.any { w in it.weeks } }
+                ?: DayVariants.nearestWeek(vs, dateWeek)
         }
         return null
     }
@@ -158,19 +171,16 @@ fun DayOverrideDialog(
                     }
                     if (needWeekChoice) {
                         Spacer(Modifier.height(4.dp))
-                        Text(
-                            "该星期的课表在学期内不同周不一样，请选择复制哪一周：",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.error,
+                        ChoiceRow(
+                            title = "复制哪一周的课表",
+                            subtitle = chosenWeek
+                                ?.let { w -> variants.firstOrNull { w in it.weeks } }
+                                ?.let { "${it.label} · ${variantPreview(it)}" }
+                                ?: "该星期的课表各周不一样，点击选择",
+                            selected = false,
+                            onClick = { showWeekPicker = true },
+                            trailing = "＞",
                         )
-                        variants.forEach { v ->
-                            ChoiceRow(
-                                title = v.label,
-                                subtitle = variantPreview(v),
-                                selected = selectedWeek == v.representativeWeek,
-                                onClick = { selectedWeek = v.representativeWeek },
-                            )
-                        }
                     }
                     Text(
                         "当天将显示「${WeekMath.weekdayName(followDay)}」的课程" +
@@ -207,6 +217,42 @@ fun DayOverrideDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+
+    // 选周列表可能很长（一学期好几段），单独放一级弹窗并限高滚动，
+    // 免得把主弹窗撑到超出屏幕、下面几行选项被压掉看不到。
+    if (showWeekPicker) {
+        AlertDialog(
+            onDismissRequest = { showWeekPicker = false },
+            title = { Text("复制哪一周的课表？", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "「${WeekMath.weekdayName(followDay)}」在学期内各周课表不一样，选一周作为当天要上的课表。",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    variants.forEach { v ->
+                        ChoiceRow(
+                            title = v.label,
+                            subtitle = variantPreview(v),
+                            selected = selectedWeek == v.representativeWeek,
+                            onClick = {
+                                selectedWeek = v.representativeWeek
+                                showWeekPicker = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showWeekPicker = false }) { Text("取消") } },
+        )
+    }
 }
 
 /** 选周项的副标题：代表周该星期上哪些课 */
@@ -220,8 +266,6 @@ private fun variantPreview(v: DayVariant): String {
 /** 「跟随默认」一行的说明：那天既没手动改、又没命中节假日方案时会是什么样 */
 private fun autoDescription(autoPlan: DayPlan, realDay: Int): String = when (autoPlan) {
     is DayPlan.Rest -> "自动方案：当天放假，无课"
-    is DayPlan.PendingWeek -> "自动方案：按${WeekMath.weekdayName(autoPlan.dayOfWeek)}课表上课，" +
-        "但该星期课表在学期内不一致，需先选一周"
     is DayPlan.Follow -> if (autoPlan.dayOfWeek == realDay) {
         "自动方案：按当天（${WeekMath.weekdayName(realDay)}）课表上课"
     } else {
@@ -235,6 +279,7 @@ private fun ChoiceRow(
     subtitle: String,
     selected: Boolean,
     onClick: () -> Unit,
+    trailing: String? = null,
 ) {
     Surface(
         onClick = onClick,
@@ -246,29 +291,42 @@ private fun ChoiceRow(
         },
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
+        Row(
             Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.Start,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-            )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (selected) {
-                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            if (trailing != null) {
+                Text(
+                    trailing,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }

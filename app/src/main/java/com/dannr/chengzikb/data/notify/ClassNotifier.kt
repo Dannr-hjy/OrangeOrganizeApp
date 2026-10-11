@@ -173,11 +173,13 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
         val coursesList = db.courseDao().getAllByTimetable(active)
         val courses = coursesList.associateBy { it.id }
 
-        // 调休：休息日/待选周次不排提醒、补课日按映射后的星期与所选周次排——与课表/小组件同一套解析
+        // 调休：休息日不排提醒、补课日按映射后的星期与所选周次排——与课表/小组件同一套解析
         val dayPlans = DayPlanIndex.of(
             db.dayOverrideDao().getAllByTimetable(active),
             settings.autoHoliday,
             DayVariants.allFor(WeekView.occurrences(coursesList, sessions), totalWeeks, periods),
+            termStartMonday = termStart,
+            totalWeeks = totalWeeks,
         )
 
         val now = LocalDateTime.now()
@@ -187,7 +189,7 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
         for (offset in 0..SCHEDULE_DAYS) {
             val date = baseDate.plusDays(offset)
             val plan = dayPlans.planFor(date)
-            // 休息 or 自动补课但还没选复制哪一周 → 不排（没有已确定的课表）
+            // 休息日 → 不排（当天没有课表）
             if (plan !is DayPlan.Follow) continue
             val dayOfWeek = plan.dayOfWeek
             val week = plan.sourceWeek ?: WeekMath.weekIndexOf(date, termStart)

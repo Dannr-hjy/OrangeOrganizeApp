@@ -7,6 +7,7 @@ import com.dannr.chengzikb.data.model.describe
 import com.dannr.chengzikb.data.model.endMinuteIn
 import com.dannr.chengzikb.data.model.startMinuteIn
 import com.dannr.chengzikb.data.model.weekSet
+import kotlin.math.abs
 
 /**
  * 某个星期几在学期内的一种「课表快照」：这段时间里每周该星期的课**完全一致**。
@@ -83,6 +84,21 @@ object DayVariants {
                 DayVariant(weekSet, rep, cands.filter { rep in it.weeks }.map { it.occ })
             }
     }
+
+    /**
+     * 在 [variants] 里挑「周次离 [anchorWeek] 最近」的那一套，返回其代表周；[variants] 为空返回 null。
+     *
+     * 每个 variant 只包含该星期**有课**的周（无课周在 [forWeekday] 里已被忽略），
+     * 所以返回值一定落在一段有课的周上——「没课的不匹配」由此保证。
+     * 距离 = 该套周次集合里离 [anchorWeek] 最近的那一周；并列时取更早的一套。
+     */
+    fun nearestWeek(variants: List<DayVariant>, anchorWeek: Int): Int? =
+        variants.minWithOrNull(
+            compareBy(
+                { v -> v.weeks.sortedWeeks.minOf { abs(it - anchorWeek) } },
+                { it.representativeWeek },
+            ),
+        )?.representativeWeek
 
     /** 1..7 → 该星期几的差异分组（没有课的星期几不出现）。 */
     fun allFor(

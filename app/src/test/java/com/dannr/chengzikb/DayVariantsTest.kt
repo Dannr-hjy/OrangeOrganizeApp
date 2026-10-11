@@ -4,8 +4,11 @@ import com.dannr.chengzikb.data.Defaults
 import com.dannr.chengzikb.data.model.Course
 import com.dannr.chengzikb.data.model.CourseSession
 import com.dannr.chengzikb.data.model.Occurrence
+import com.dannr.chengzikb.data.model.WeekSet
+import com.dannr.chengzikb.domain.DayVariant
 import com.dannr.chengzikb.domain.DayVariants
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -106,5 +109,35 @@ class DayVariantsTest {
         val vs = DayVariants.forWeekday(listOf(occ(1, 1, "1,3,5,7,11,13,15")), dayOfWeek = 1, totalWeeks = 16)
         assertEquals(1, vs.size)
         assertEquals("第1、3、5、7、11、13、15周", vs.single().label)
+    }
+
+    /* ---------- nearestWeek：补课日该复制哪一周 ---------- */
+
+    private fun variant(weeks: IntRange, rep: Int) =
+        DayVariant(WeekSet.fromIterable(weeks), rep, emptyList())
+
+    @Test
+    fun `nearestWeek 取离锚点最近的一段`() {
+        val vs = listOf(variant(1..4, 1), variant(9..16, 9))
+        assertEquals(1, DayVariants.nearestWeek(vs, 5))
+        assertEquals(9, DayVariants.nearestWeek(vs, 12))
+    }
+
+    @Test
+    fun `nearestWeek 锚点落在某段内就取那一段`() {
+        val vs = listOf(variant(1..8, 1), variant(9..16, 9))
+        assertEquals(9, DayVariants.nearestWeek(vs, 10))
+    }
+
+    @Test
+    fun `nearestWeek 等距时取更早的一段`() {
+        // 锚点第 7 周到两段都差 3 周（4 与 10）→ 取更早的第1-4周
+        val vs = listOf(variant(1..4, 1), variant(10..13, 10))
+        assertEquals(1, DayVariants.nearestWeek(vs, 7))
+    }
+
+    @Test
+    fun `nearestWeek 没有可选项时返回 null`() {
+        assertNull(DayVariants.nearestWeek(emptyList(), 5))
     }
 }

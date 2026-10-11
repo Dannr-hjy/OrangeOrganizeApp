@@ -66,12 +66,15 @@ fun HolidaySchemeScreen(onBack: () -> Unit) {
     var editing by remember { mutableStateOf<LocalDate?>(null) }
     val autoEnabled = settings?.autoHoliday == true
     val totalWeeks = settings?.totalWeeks ?: 0
+    val termStartMonday = settings?.let { LocalDate.ofEpochDay(it.termStartEpochDay) }
     val variants = remember(courses, sessions, periods, totalWeeks) {
         if (totalWeeks > 0) DayVariants.allFor(WeekView.occurrences(courses, sessions), totalWeeks, periods)
         else emptyMap()
     }
-    // 本页恒按「自动开启」求值（展示方案本身）；变体表让补课目标星期不一致的日子显示「待选周次」
-    val planIndex = remember(overrides, variants) { DayPlanIndex.of(overrides, autoEnabled = true, variants) }
+    // 本页恒按「自动开启」求值（展示方案本身）；变体表 + 学期起止让补课日算出「复制哪一周的课表」
+    val planIndex = remember(overrides, variants, termStartMonday, totalWeeks) {
+        DayPlanIndex.of(overrides, autoEnabled = true, variants, termStartMonday, totalWeeks)
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -147,7 +150,7 @@ fun HolidaySchemeScreen(onBack: () -> Unit) {
             current = overrides.firstOrNull { it.dateEpochDay == date.toEpochDay() },
             autoPlan = planIndex.autoOnly(date),
             variantsFor = { d -> variants[d].orEmpty() },
-            dateWeek = settings?.let { WeekMath.weekIndexOf(date, LocalDate.ofEpochDay(it.termStartEpochDay)) } ?: 0,
+            dateWeek = termStartMonday?.let { WeekMath.weekIndexOf(date, it) } ?: 0,
             onConfirm = { row ->
                 scope.launch { app.container.dayOverrideRepository.set(date, row) }
                 editing = null
@@ -227,7 +230,6 @@ private fun SchemeSection(
                 val inEffect = manual != null || autoEnabled
                 val effectText = when (effective) {
                     is DayPlan.Rest -> "休息"
-                    is DayPlan.PendingWeek -> "→ 待选周次"
                     is DayPlan.Follow -> buildString {
                         append("→ 按${WeekMath.weekdayName(effective.dayOfWeek)}课表")
                         effective.sourceWeek?.let { w ->
@@ -236,10 +238,10 @@ private fun SchemeSection(
                         }
                     }
                 }
-                val effectColor = when {
-                    effective is DayPlan.PendingWeek -> MaterialTheme.colorScheme.error
-                    inEffect -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                val effectColor = if (inEffect) {
+                    MaterialTheme.colorScheme.tertiary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 }
                 Surface(
                     onClick = { onEdit(m.date) },

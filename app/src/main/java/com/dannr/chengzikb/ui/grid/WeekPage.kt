@@ -197,12 +197,6 @@ fun WeekPage(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                             )
-                            is EffectiveDay.Pending -> Text(
-                                "待选周次",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
-                            )
                             else -> Unit
                         }
                     }

@@ -47,7 +47,7 @@ data class MainUiState(
     val todayDayOfWeek: Int get() = WeekMath.dayIndexOf(now.toLocalDate())
 
     /** 日期 → 上法（手动覆盖 > 自动调休方案 > 真实星期），课表/小组件/提醒共用。
-     *  自动调休开启时注入各星期的课表差异分组，以便补课目标星期不一致的日子标为「待选周次」。 */
+     *  自动调休开启时注入各星期的课表差异分组与学期起止，供补课日自动落到最近一段有课的课表。 */
     val dayPlans: DayPlanIndex
         get() {
             val auto = settings?.autoHoliday == true
@@ -56,6 +56,8 @@ data class MainUiState(
                 overrides,
                 auto,
                 variantsByDay = if (auto && total > 0) DayVariants.allFor(occurrences, total, periods) else emptyMap(),
+                termStartMonday = termStartMonday,
+                totalWeeks = total,
             )
         }
 

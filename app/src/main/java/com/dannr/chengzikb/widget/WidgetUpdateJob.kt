@@ -109,16 +109,18 @@ class WidgetUpdateJob(private val context: Context) {
         val termStart = LocalDate.ofEpochDay(settings.termStartEpochDay)
         val totalWeeks = settings.totalWeeks.coerceAtLeast(1)
 
-        // 调休：休息日/待选周次无课、补课日按映射后的星期与所选周次取课——与课表网格走同一套解析
+        // 调休：休息日无课、补课日按映射后的星期与所选周次取课——与课表网格走同一套解析
         val dayPlans = DayPlanIndex.of(
             db.dayOverrideDao().getAllByTimetable(active),
             settings.autoHoliday,
             DayVariants.allFor(WeekView.occurrences(coursesList, sessions), totalWeeks, periods),
+            termStartMonday = termStart,
+            totalWeeks = totalWeeks,
         )
 
         val activeFor: (LocalDate) -> List<WidgetEngine.WCourse> = forDate@{ date ->
             val plan = dayPlans.planFor(date)
-            // 休息 or 自动补课但还没选复制哪一周 → 不显示猜测的课表
+            // 休息日 → 不排课
             if (plan !is DayPlan.Follow) return@forDate emptyList()
             val dow = plan.dayOfWeek
             val week = plan.sourceWeek ?: WeekMath.weekIndexOf(date, termStart)

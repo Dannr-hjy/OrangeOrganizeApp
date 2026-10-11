@@ -126,7 +126,6 @@ fun TimetableGrid(
             (1..7).associateWith { d ->
                 when (val plan = dayPlans.planFor(weekStart.plusDays((d - 1).toLong()))) {
                     is DayPlan.Rest -> EffectiveDay.Rest
-                    is DayPlan.PendingWeek -> EffectiveDay.Pending(plan.dayOfWeek)
                     is DayPlan.Follow -> EffectiveDay.Follow(
                         dayOfWeek = plan.dayOfWeek,
                         // 「补哪一周」：选了具体周次就用它，否则用当天所在的周
@@ -141,7 +140,7 @@ fun TimetableGrid(
         (0 until pageCount).map { w ->
             effectiveDays[w].mapValues { (_, eff) ->
                 when (eff) {
-                    is EffectiveDay.Rest, is EffectiveDay.Pending -> emptyList()
+                    is EffectiveDay.Rest -> emptyList()
                     is EffectiveDay.Follow -> WeekView.placementsForWeek(
                         effectiveOccurrences, eff.contentWeek, eff.dayOfWeek, showOtherWeeks,
                     )

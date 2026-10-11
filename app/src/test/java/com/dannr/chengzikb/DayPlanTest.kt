@@ -186,35 +186,78 @@ class DayPlanTest {
 
     /* ---------- 「补哪一周」 ---------- */
 
-    /** 周一在学期内有两种课表：第1-8周 / 第9-16周 */
-    private fun mondayVariants(): Map<Int, List<DayVariant>> = mapOf(
-        1 to listOf(
-            DayVariant(WeekSet.fromRange(1, 8), 1, emptyList()),
-            DayVariant(WeekSet.fromRange(9, 16), 9, emptyList()),
-        ),
+    /** 学期第 1 周周一。以下用例里 2026-05-09(补周二) 落在第 10 周，2026-02-14(补周五) 在开学前。 */
+    private val TERM_START = LocalDate.of(2026, 3, 2)
+
+    /** 周二在学期内的课表分段；[ranges] 的第 i 段代表周 = 该段首周 */
+    private fun tuesdayVariants(vararg ranges: IntRange): Map<Int, List<DayVariant>> = mapOf(
+        2 to ranges.map { DayVariant(WeekSet.fromIterable(it), it.first, emptyList()) },
     )
 
     @Test
-    fun `自动补课日目标星期各周不一致时 标为待选周次`() {
-        // 2026-02-28 周六补周一；周一有 2 种课表 → 不擅自决定
-        val idx = DayPlanIndex.of(emptyList(), autoEnabled = true, variantsByDay = mondayVariants())
-        assertEquals(DayPlan.PendingWeek(1), idx.planFor(LocalDate.of(2026, 2, 28)))
+    fun `补课日当天所在的周本来就有课时 沿用本周`() {
+        // 5-9 补周二 → 第 10 周，落在周二的「第9-16周」那一段 → 沿用当天所在的周即可
+        val idx = DayPlanIndex.of(
+            emptyList(), autoEnabled = true,
+            variantsByDay = tuesdayVariants(1..8, 9..16),
+            termStartMonday = TERM_START, totalWeeks = 16,
+        )
+        assertEquals(DayPlan.Follow(2, null), idx.planFor(LocalDate.of(2026, 5, 9)))
     }
 
     @Test
-    fun `手动覆盖带 followWeek 后 待选被消解且手动优先`() {
-        val d = LocalDate.of(2026, 2, 28)
-        val manual = DayOverride(1L, d.toEpochDay(), DayOverride.KIND_FOLLOW, 1, followWeek = 5)
-        val idx = DayPlanIndex.of(listOf(manual), autoEnabled = true, variantsByDay = mondayVariants())
-        assertEquals(DayPlan.Follow(1, 5), idx.planFor(d))
+    fun `补课日当天所在的周该星期无课时 落到最近的一段有课周`() {
+        // 周二的课第 4 周就结束了，补课日在第 10 周 → 落到第 1-4 周那一段（不显示空白）
+        val idx = DayPlanIndex.of(
+            emptyList(), autoEnabled = true,
+            variantsByDay = tuesdayVariants(1..4),
+            termStartMonday = TERM_START, totalWeeks = 16,
+        )
+        assertEquals(DayPlan.Follow(2, 1), idx.planFor(LocalDate.of(2026, 5, 9)))
     }
 
     @Test
-    fun `目标星期各周一致时不产生待选`() {
-        // 只有一种课表（1 组）→ 无歧义，按当天所在的周
-        val one = mapOf(1 to listOf(DayVariant(WeekSet.fromRange(1, 16), 1, emptyList())))
-        val idx = DayPlanIndex.of(emptyList(), autoEnabled = true, variantsByDay = one)
-        assertEquals(DayPlan.Follow(1, null), idx.planFor(LocalDate.of(2026, 2, 28)))
+    fun `多段都无课时 取周次离补课日最近的一段`() {
+        // 第 1-4 周与第 5-8 周各一套课表；补课日在第 10 周 → 第 5-8 周更近
+        val idx = DayPlanIndex.of(
+            emptyList(), autoEnabled = true,
+            variantsByDay = tuesdayVariants(1..4, 5..8),
+            termStartMonday = TERM_START, totalWeeks = 16,
+        )
+        assertEquals(DayPlan.Follow(2, 5), idx.planFor(LocalDate.of(2026, 5, 9)))
+    }
+
+    @Test
+    fun `目标星期各周一致时不指定复制周次`() {
+        val idx = DayPlanIndex.of(
+            emptyList(), autoEnabled = true,
+            variantsByDay = tuesdayVariants(1..16),
+            termStartMonday = TERM_START, totalWeeks = 16,
+        )
+        assertEquals(DayPlan.Follow(2, null), idx.planFor(LocalDate.of(2026, 5, 9)))
+    }
+
+    @Test
+    fun `补课日在学期外时不指定复制周次`() {
+        // 2-14 补周五，但学期 3-02 才开始（第 -2 周）→ 维持空白，不硬塞某一周的课表
+        val idx = DayPlanIndex.of(
+            emptyList(), autoEnabled = true,
+            variantsByDay = tuesdayVariants(1..8, 9..16),
+            termStartMonday = TERM_START, totalWeeks = 16,
+        )
+        assertEquals(DayPlan.Follow(5, null), idx.planFor(LocalDate.of(2026, 2, 14)))
+    }
+
+    @Test
+    fun `手动覆盖带 followWeek 时 手动优先`() {
+        val d = LocalDate.of(2026, 5, 9)
+        val manual = DayOverride(1L, d.toEpochDay(), DayOverride.KIND_FOLLOW, 2, followWeek = 5)
+        val idx = DayPlanIndex.of(
+            listOf(manual), autoEnabled = true,
+            variantsByDay = tuesdayVariants(1..8, 9..16),
+            termStartMonday = TERM_START, totalWeeks = 16,
+        )
+        assertEquals(DayPlan.Follow(2, 5), idx.planFor(d))
     }
 
     @Test

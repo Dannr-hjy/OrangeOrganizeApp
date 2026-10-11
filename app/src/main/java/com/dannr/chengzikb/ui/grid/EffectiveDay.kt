@@ -15,7 +15,4 @@ sealed interface EffectiveDay {
      * 指定了复制周次（[com.dannr.chengzikb.data.model.DayOverride.followWeek]）时二者不同。
      */
     data class Follow(val dayOfWeek: Int, val contentWeek: Int) : EffectiveDay
-
-    /** 自动补课日但还没选复制哪一周：「待选周次」，不渲染猜测的课表 */
-    data class Pending(val dayOfWeek: Int) : EffectiveDay
 }

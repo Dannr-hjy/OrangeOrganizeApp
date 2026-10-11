@@ -574,8 +574,8 @@ private fun DayEditDialogHost(
     val variants = remember(occurrences, periods, totalWeeks) {
         if (totalWeeks > 0) DayVariants.allFor(occurrences, totalWeeks, periods) else emptyMap()
     }
-    val planIndex = remember(overrides, autoEnabled, variants) {
-        DayPlanIndex.of(overrides, autoEnabled, variants)
+    val planIndex = remember(overrides, autoEnabled, variants, termStartMonday, totalWeeks) {
+        DayPlanIndex.of(overrides, autoEnabled, variants, termStartMonday, totalWeeks)
     }
     DayOverrideDialog(
         date = date,
