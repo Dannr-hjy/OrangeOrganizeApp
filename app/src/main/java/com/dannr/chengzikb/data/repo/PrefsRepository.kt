@@ -17,11 +17,24 @@ class PrefsRepository(private val metaDao: MetaDao) {
     companion object {
         const val KEY_REMIND_ENABLED = "remind_enabled"
         const val KEY_REMIND_MINUTES = "remind_minutes"
+
+        /** 主题色被切换过的累计次数：解锁隐藏炫彩主题用，全局一份（换课表也不重置）。 */
+        const val KEY_THEME_SWITCH_COUNT = "theme_switch_count"
     }
 
     val remindersEnabled: Flow<Boolean> = metaDao.observe(KEY_REMIND_ENABLED).map { it?.value == "1" }
 
     val remindMinutes: Flow<Int> = metaDao.observe(KEY_REMIND_MINUTES).map { it?.value?.toIntOrNull() ?: 10 }
+
+    /**
+     * 主题色切换总次数（全局，跨课表累计）。null = 还没从库里读出来，
+     * 此时调用方不要回写，否则会用初值覆盖掉真实计数。
+     */
+    val themeSwitchCount: Flow<Int?> =
+        metaDao.observe(KEY_THEME_SWITCH_COUNT).map { it?.value?.toIntOrNull() }
+
+    suspend fun setThemeSwitchCount(count: Int) =
+        metaDao.put(MetaEntry(KEY_THEME_SWITCH_COUNT, count.coerceAtLeast(0).toString()))
 
     /**
      * 两者合并发射，排程只认这一个 flow。UI 里 `collectAsStateWithLifecycle(initialValue = false)`

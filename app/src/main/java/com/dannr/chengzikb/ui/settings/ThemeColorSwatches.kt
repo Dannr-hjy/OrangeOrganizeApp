@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,9 +34,27 @@ import com.dannr.chengzikb.ui.theme.HSVColorPickerDialog
 import com.dannr.chengzikb.ui.theme.formatColorHex
 import com.dannr.chengzikb.ui.theme.parseHexColor
 
-/** 主题色选择：几个预设色 + 一个打开自由色板的彩格。返回 null 表示“默认橙”。 */
+/** 主题色被切换多少次后解锁隐藏的炫彩主题 */
+const val ThemeSwitchUnlockCount = 7
+
+private val RainbowSweep = listOf(
+    Color.Red, Color(0xFFFF9800), Color.Yellow, Color.Green,
+    Color.Cyan, Color.Blue, Color.Magenta, Color.Red,
+)
+
+/**
+ * 主题色选择：几个预设色 + 一个打开自由色板的彩格。返回 null 表示“默认橙”。
+ * [rainbowUnlocked] 为真时（切换主题色 [ThemeSwitchUnlockCount] 次后）在末尾多出一枚炫彩格；
+ * [rainbowSelected] 为真时炫彩生效，全部预设色/自定义色取消选中。
+ */
 @Composable
-fun ThemeColorSwatches(seedHex: String?, onPick: (String?) -> Unit) {
+fun ThemeColorSwatches(
+    seedHex: String?,
+    onPick: (String?) -> Unit,
+    rainbowUnlocked: Boolean = false,
+    rainbowSelected: Boolean = false,
+    onPickRainbow: () -> Unit = {},
+) {
     var showPicker by remember { mutableStateOf(false) }
     val defaultColor = Color(0xFF9A4800)
     val presets = listOf(
@@ -57,7 +76,7 @@ fun ThemeColorSwatches(seedHex: String?, onPick: (String?) -> Unit) {
     ) {
         presets.forEachIndexed { i, color ->
             val isDefault = i == 0
-            val sel = color == selected
+            val sel = !rainbowSelected && color == selected
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Box(
                     modifier = Modifier
@@ -77,20 +96,34 @@ fun ThemeColorSwatches(seedHex: String?, onPick: (String?) -> Unit) {
             Box(
                 modifier = Modifier
                     .size(30.dp)
-                    .then(if (customColor != null) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+                    .then(if (!rainbowSelected && customColor != null) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
                     .clip(CircleShape)
-                    .background(
-                        Brush.sweepGradient(
-                            listOf(
-                                Color.Red, Color(0xFFFF9800), Color.Yellow, Color.Green,
-                                Color.Cyan, Color.Blue, Color.Magenta, Color.Red,
-                            ),
-                        ),
-                    )
+                    .background(Brush.sweepGradient(RainbowSweep))
                     .clickable { showPicker = true },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Default.Add, contentDescription = "自定义主题色", tint = Color.White, modifier = Modifier.size(16.dp))
+            }
+        }
+        // 隐藏炫彩格：切换够次数后才出现
+        if (rainbowUnlocked) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .then(if (rainbowSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape) else Modifier)
+                        .clip(CircleShape)
+                        .background(Brush.sweepGradient(RainbowSweep.reversed()))
+                        .clickable { onPickRainbow() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = "炫彩主题",
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
             }
         }
     }

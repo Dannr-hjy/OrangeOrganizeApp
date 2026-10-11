@@ -138,6 +138,11 @@ fun MainScreen(
     val remindPrefs by produceState<ReminderPrefs?>(initialValue = null) {
         app.container.prefsRepository.reminderPrefs.collect { value = it }
     }
+    // —— 主题色切换累计次数（全局一份，跨课表累计）：炫彩主题的解锁进度 ——
+    // null = 尚未从库里读出；设置页拿它决定要不要显示炫彩格，并在写入前挡住"用初值覆盖真实计数"。
+    val themeSwitchCount by produceState<Int?>(initialValue = null) {
+        app.container.prefsRepository.themeSwitchCount.collect { value = it }
+    }
     val remindEnabled = remindPrefs?.enabled ?: false
     val remindMinutes = remindPrefs?.minutes ?: 10
     // 最近一次排程结果（条数/最近一条/精确闹钟是否可用），设置页用它做“提醒到底排上没有”的自查
@@ -447,6 +452,10 @@ fun MainScreen(
                                 SettingsScreen(
                                     settings = s,
                                     onChange = { vm.saveSettingsAsync(it) },
+                                    themeSwitchCount = themeSwitchCount,
+                                    onThemeSwitchCountChange = { n ->
+                                        scope.launch { app.container.prefsRepository.setThemeSwitchCount(n) }
+                                    },
                                     remindEnabled = remindEnabled,
                                     remindMinutes = remindMinutes,
                                     reminderStatus = reminderStatus,

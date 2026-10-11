@@ -25,7 +25,7 @@ import com.dannr.chengzikb.data.model.WeekSet
         MetaEntry::class,
         DayOverride::class,
     ],
-    version = 11,
+    version = 13,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -50,7 +50,10 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     // v2：课程/安排拆表。开发期真机上多为试排数据，直接重建最稳妥；
                     // v5：支持多课表。开发期破坏性重建，正式上线前应补 Migration 保留数据。
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(
+                        MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                        MIGRATION_11_12, MIGRATION_12_13,
+                    )
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
@@ -88,6 +91,62 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE day_overrides ADD COLUMN follow_week INTEGER")
+            }
+        }
+
+        /**
+         * v11 → v12：低饱和配色 + 隐藏炫彩主题。
+         * settings 增加 lowSaturation / rainbowTheme / themeSwitchCount（默认 0）：
+         * 升级后行为与之前完全一致（不低饱和、不炫彩、切换计数从 0 开始）。
+         * 三列都带 DEFAULT，纯增量迁移，不动任何既有数据。
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE settings ADD COLUMN lowSaturation INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE settings ADD COLUMN rainbowTheme INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE settings ADD COLUMN themeSwitchCount INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v12 → v13：炫彩主题的解锁计数改为全局偏好（meta 表的 theme_switch_count）。
+         * settings 表删掉只活了一个版本的 themeSwitchCount 列。SQLite 的 DROP COLUMN 要 3.35+
+         * （Android 13 起），minSdk 26 的老机器上没有 → 只能重建表：建新表、搬数据、换名。
+         * 建表语句必须与 Room 由 AppSettings 实体生成的 schema 逐字一致（类型 / NOT NULL / DEFAULT / 主键），
+         * 否则启动时报校验失败；迁移在事务里跑，中途失败会整体回滚，不会丢数据。
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `settings_new` (" +
+                        "`timetable_id` INTEGER NOT NULL, " +
+                        "`termStartEpochDay` INTEGER NOT NULL, " +
+                        "`totalWeeks` INTEGER NOT NULL, " +
+                        "`shownDays` INTEGER NOT NULL, " +
+                        "`themeMode` INTEGER NOT NULL, " +
+                        "`showLocation` INTEGER NOT NULL, " +
+                        "`showTeacher` INTEGER NOT NULL, " +
+                        "`showOtherWeeks` INTEGER NOT NULL, " +
+                        "`themeSeedHex` TEXT, " +
+                        "`lowSaturation` INTEGER NOT NULL DEFAULT 0, " +
+                        "`rainbowTheme` INTEGER NOT NULL DEFAULT 0, " +
+                        "`showShortNameInGrid` INTEGER NOT NULL DEFAULT 0, " +
+                        "`showShortNameInWidget` INTEGER NOT NULL DEFAULT 0, " +
+                        "`autoHoliday` INTEGER NOT NULL DEFAULT 0, " +
+                        "PRIMARY KEY(`timetable_id`))",
+                )
+                db.execSQL(
+                    "INSERT INTO `settings_new` (" +
+                        "`timetable_id`, `termStartEpochDay`, `totalWeeks`, `shownDays`, `themeMode`, " +
+                        "`showLocation`, `showTeacher`, `showOtherWeeks`, `themeSeedHex`, `lowSaturation`, " +
+                        "`rainbowTheme`, `showShortNameInGrid`, `showShortNameInWidget`, `autoHoliday`) " +
+                        "SELECT `timetable_id`, `termStartEpochDay`, `totalWeeks`, `shownDays`, `themeMode`, " +
+                        "`showLocation`, `showTeacher`, `showOtherWeeks`, `themeSeedHex`, `lowSaturation`, " +
+                        "`rainbowTheme`, `showShortNameInGrid`, `showShortNameInWidget`, `autoHoliday` " +
+                        "FROM `settings`",
+                )
+                db.execSQL("DROP TABLE `settings`")
+                db.execSQL("ALTER TABLE `settings_new` RENAME TO `settings`")
             }
         }
 

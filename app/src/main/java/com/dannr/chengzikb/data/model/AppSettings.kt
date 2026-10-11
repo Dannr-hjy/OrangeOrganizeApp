@@ -24,6 +24,10 @@ data class AppSettings(
     val showTeacher: Boolean = true,
     val showOtherWeeks: Boolean = false,
     val themeSeedHex: String? = null, // 主题主色（#RRGGBB）；null = 默认橙色
+    // 低饱和：整块色板按比例压饱和度（与所选的种子色叠加生效）
+    @ColumnInfo(defaultValue = "0") val lowSaturation: Boolean = false,
+    // 炫彩（隐藏主题）：色相持续轮转。是否"已解锁"由全局切换计数决定，见 PrefsRepository
+    @ColumnInfo(defaultValue = "0") val rainbowTheme: Boolean = false,
     @ColumnInfo(defaultValue = "0") val showShortNameInGrid: Boolean = false,
     @ColumnInfo(defaultValue = "0") val showShortNameInWidget: Boolean = false,
     @ColumnInfo(defaultValue = "0") val autoHoliday: Boolean = false,

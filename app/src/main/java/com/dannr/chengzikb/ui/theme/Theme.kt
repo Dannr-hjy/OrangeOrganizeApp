@@ -9,11 +9,15 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.dannr.chengzikb.data.model.Course
+import kotlinx.coroutines.delay
 
 /**
  * 主题模式（设置页可覆盖，默认跟随系统）
@@ -125,43 +129,86 @@ private fun rotateHue(c: Color, delta: Float): Color {
     return Color(android.graphics.Color.HSVToColor(alpha, floatArrayOf(nh, hsv[1], hsv[2])))
 }
 
+/** 按比例压低饱和度（低饱和主题用）；近无彩色保持不动 */
+private fun desaturate(c: Color, factor: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(c.toArgb(), hsv)
+    if (hsv[1] < 0.02f) return c
+    hsv[1] = (hsv[1] * factor).coerceIn(0f, 1f)
+    val alpha = (c.alpha * 255f).toInt().coerceIn(0, 255)
+    return Color(android.graphics.Color.HSVToColor(alpha, hsv))
+}
+
 /**
- * 整个暖橙色板按 delta 做统一色相平移：不仅主/次/第三主色与容器，连
- * surfaceContainer 系列、surface/background、surfaceVariant、outline 与各 on-* 文字色都迁到新色相
+ * 对色板的全部“语义色”施加同一变换：主/次/第三主色与容器，以及
+ * surfaceContainer 系列、surface/background、surfaceVariant、outline 与各 on-* 文字色。
+ * 错误系(红)与 scrim 不参与。色相迁移与低饱和都走这里，保证两者覆盖面一致。
+ */
+private fun mapSchemeColors(base: ColorScheme, f: (Color) -> Color): ColorScheme = base.copy(
+    primary = f(base.primary),
+    onPrimary = f(base.onPrimary),
+    primaryContainer = f(base.primaryContainer),
+    onPrimaryContainer = f(base.onPrimaryContainer),
+    secondary = f(base.secondary),
+    onSecondary = f(base.onSecondary),
+    secondaryContainer = f(base.secondaryContainer),
+    onSecondaryContainer = f(base.onSecondaryContainer),
+    tertiary = f(base.tertiary),
+    onTertiary = f(base.onTertiary),
+    tertiaryContainer = f(base.tertiaryContainer),
+    onTertiaryContainer = f(base.onTertiaryContainer),
+    background = f(base.background),
+    onBackground = f(base.onBackground),
+    surface = f(base.surface),
+    onSurface = f(base.onSurface),
+    surfaceVariant = f(base.surfaceVariant),
+    onSurfaceVariant = f(base.onSurfaceVariant),
+    inversePrimary = f(base.inversePrimary),
+    inverseSurface = f(base.inverseSurface),
+    inverseOnSurface = f(base.inverseOnSurface),
+    outline = f(base.outline),
+    outlineVariant = f(base.outlineVariant),
+    surfaceBright = f(base.surfaceBright),
+    surfaceDim = f(base.surfaceDim),
+    surfaceContainerLowest = f(base.surfaceContainerLowest),
+    surfaceContainerLow = f(base.surfaceContainerLow),
+    surfaceContainer = f(base.surfaceContainer),
+    surfaceContainerHigh = f(base.surfaceContainerHigh),
+    surfaceContainerHighest = f(base.surfaceContainerHighest),
+)
+
+/**
+ * 整个暖橙色板按 delta 做统一色相平移：主/次/第三主色与容器，连 surfaceContainer 系列、
+ * surface/background、surfaceVariant、outline 与各 on-* 文字色都迁到新色相
  * （只改色相、亮度饱和度不变，对比度基本不受影响）。错误系(红)与 scrim 不迁移。
  */
-private fun rotateScheme(base: ColorScheme, delta: Float): ColorScheme = base.copy(
-    primary = rotateHue(base.primary, delta),
-    onPrimary = rotateHue(base.onPrimary, delta),
-    primaryContainer = rotateHue(base.primaryContainer, delta),
-    onPrimaryContainer = rotateHue(base.onPrimaryContainer, delta),
-    secondary = rotateHue(base.secondary, delta),
-    onSecondary = rotateHue(base.onSecondary, delta),
-    secondaryContainer = rotateHue(base.secondaryContainer, delta),
-    onSecondaryContainer = rotateHue(base.onSecondaryContainer, delta),
-    tertiary = rotateHue(base.tertiary, delta),
-    onTertiary = rotateHue(base.onTertiary, delta),
-    tertiaryContainer = rotateHue(base.tertiaryContainer, delta),
-    onTertiaryContainer = rotateHue(base.onTertiaryContainer, delta),
-    background = rotateHue(base.background, delta),
-    onBackground = rotateHue(base.onBackground, delta),
-    surface = rotateHue(base.surface, delta),
-    onSurface = rotateHue(base.onSurface, delta),
-    surfaceVariant = rotateHue(base.surfaceVariant, delta),
-    onSurfaceVariant = rotateHue(base.onSurfaceVariant, delta),
-    inversePrimary = rotateHue(base.inversePrimary, delta),
-    inverseSurface = rotateHue(base.inverseSurface, delta),
-    inverseOnSurface = rotateHue(base.inverseOnSurface, delta),
-    outline = rotateHue(base.outline, delta),
-    outlineVariant = rotateHue(base.outlineVariant, delta),
-    surfaceBright = rotateHue(base.surfaceBright, delta),
-    surfaceDim = rotateHue(base.surfaceDim, delta),
-    surfaceContainerLowest = rotateHue(base.surfaceContainerLowest, delta),
-    surfaceContainerLow = rotateHue(base.surfaceContainerLow, delta),
-    surfaceContainer = rotateHue(base.surfaceContainer, delta),
-    surfaceContainerHigh = rotateHue(base.surfaceContainerHigh, delta),
-    surfaceContainerHighest = rotateHue(base.surfaceContainerHighest, delta),
-)
+private fun rotateScheme(base: ColorScheme, delta: Float): ColorScheme =
+    mapSchemeColors(base) { rotateHue(it, delta) }
+
+/**
+ * 低饱和主题：整块色板压饱和度（只降饱和、不动色相亮度），主色按新亮度重算对比文字。
+ * 叠加在「默认橙」或任意种子色之上都成立，亮/暗两套色板各自生效。
+ */
+private fun applyLowSaturation(scheme: ColorScheme): ColorScheme {
+    val muted = mapSchemeColors(scheme) { desaturate(it, LowSaturationFactor) }
+    val p = muted.primary
+    return muted.copy(
+        primary = p,
+        onPrimary = contrastOn(p),
+        surfaceTint = p,
+        inversePrimary = p,
+    )
+}
+
+/**
+ * 炫彩主题：整块色板色相轮转 hueDeg 度（从所在模式的暖橙色板出发），
+ * 主色仍按亮度选对比文字，保证任一色相下按钮文字都读得清。
+ */
+private fun rainbowScheme(base: ColorScheme, hueDeg: Float): ColorScheme {
+    val rotated = rotateScheme(base, hueDeg)
+    val p = rotated.primary
+    return rotated.copy(primary = p, onPrimary = contrastOn(p), surfaceTint = p, inversePrimary = p)
+}
 
 /**
  * 自定义主题色 → 整套暖橙色板整体相迁移到种子色：
@@ -239,14 +286,25 @@ private val OrangeShapes = Shapes(
     extraLarge = RoundedCornerShape(24.dp),
 )
 
+/** 低饱和主题：整块色板的饱和度统一压到这个比例 */
+private const val LowSaturationFactor = 0.45f
+
+/** 炫彩主题的轮转节奏：每 [RainbowStepMillis] 毫秒转 [RainbowStepDegrees] 度（约 7 秒一整圈） */
+private const val RainbowStepMillis = 80L
+private const val RainbowStepDegrees = 4f
+
 /**
  * 全局主题：按设置选择 浅色 / 深色 / 跟随系统；
  * [seedColor] 非空时用该主色生成对应亮/暗色板（默认 null = 暖橙原色板）。
+ * [lowSaturation] 叠加低饱和配色；[rainbow] 开隐藏炫彩主题（色相持续轮转，压过种子色）。
+ * 三者（色板 / 低饱和 / 炫彩）在亮色与暗色下各自成立。
  */
 @Composable
 fun OrangeKeBiaoTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     seedColor: Color? = null,
+    lowSaturation: Boolean = false,
+    rainbow: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val dark = when (themeMode) {
@@ -254,9 +312,25 @@ fun OrangeKeBiaoTheme(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val base = if (dark) OrangeDark else OrangeLight
     val colorScheme = when {
-        seedColor == null -> if (dark) OrangeDark else OrangeLight
-        else -> schemeFromSeed(seedColor, dark)
+        // 炫彩：整块色板色相持续轮转。分步推进（而非逐帧）以免每帧重组整棵界面。
+        rainbow -> {
+            val hue = remember { mutableFloatStateOf(0f) }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    delay(RainbowStepMillis)
+                    hue.floatValue = (hue.floatValue + RainbowStepDegrees) % 360f
+                }
+            }
+            val scheme = rainbowScheme(base, hue.floatValue)
+            if (lowSaturation) applyLowSaturation(scheme) else scheme
+        }
+        seedColor == null -> if (lowSaturation) applyLowSaturation(base) else base
+        else -> {
+            val scheme = schemeFromSeed(seedColor, dark)
+            if (lowSaturation) applyLowSaturation(scheme) else scheme
+        }
     }
     MaterialTheme(
         colorScheme = colorScheme,

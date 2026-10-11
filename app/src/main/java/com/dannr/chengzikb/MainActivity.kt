@@ -62,7 +62,12 @@ private fun AppRoot() {
         }
     }
     val seedColor = settings?.themeSeedHex?.let { parseHexColor(it) }
-    OrangeKeBiaoTheme(themeMode = themeMode, seedColor = seedColor) {
+    OrangeKeBiaoTheme(
+        themeMode = themeMode,
+        seedColor = seedColor,
+        lowSaturation = settings?.lowSaturation == true,
+        rainbow = settings?.rainbowTheme == true,
+    ) {
         // 用主题 background 铺满窗口：避免未被组件覆盖处露出系统窗口的浅色底
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             AppNavHost()

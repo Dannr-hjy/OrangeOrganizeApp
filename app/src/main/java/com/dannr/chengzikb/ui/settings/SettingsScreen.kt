@@ -57,6 +57,8 @@ import com.dannr.chengzikb.util.OemGuide
 fun SettingsScreen(
     settings: AppSettings,
     onChange: (AppSettings) -> Unit,
+    themeSwitchCount: Int?,
+    onThemeSwitchCountChange: (Int) -> Unit,
     remindEnabled: Boolean,
     remindMinutes: Int,
     reminderStatus: ReminderStatus,
@@ -89,8 +91,29 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Text("主题色", style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.height(8.dp))
-            ThemeColorSwatches(seedHex = settings.themeSeedHex) {
-                onChange(settings.copy(themeSeedHex = it))
+            val rainbowUnlocked = (themeSwitchCount ?: 0) >= ThemeSwitchUnlockCount
+            ThemeColorSwatches(
+                seedHex = settings.themeSeedHex,
+                rainbowUnlocked = rainbowUnlocked,
+                rainbowSelected = settings.rainbowTheme,
+                onPick = { hex ->
+                    // 换了个色才算“切换”一次：点当前已选中的色不计数，累计满阈值即解锁隐藏炫彩主题。
+                    // 计数全局一份（跨课表累计）；还没读出来(null)时不回写，免得用初值覆盖真实计数。
+                    val switched = settings.rainbowTheme || hex != settings.themeSeedHex
+                    val count = themeSwitchCount
+                    if (switched && count != null && count < ThemeSwitchUnlockCount) {
+                        if (count + 1 >= ThemeSwitchUnlockCount) {
+                            Toast.makeText(context, "解锁隐藏主题：炫彩 🎉", Toast.LENGTH_SHORT).show()
+                        }
+                        onThemeSwitchCountChange(count + 1)
+                    }
+                    onChange(settings.copy(themeSeedHex = hex, rainbowTheme = false))
+                },
+                onPickRainbow = { onChange(settings.copy(rainbowTheme = true)) },
+            )
+            Spacer(Modifier.height(6.dp))
+            SwitchRow(label = "低饱和配色", checked = settings.lowSaturation) {
+                onChange(settings.copy(lowSaturation = it))
             }
         }
 
