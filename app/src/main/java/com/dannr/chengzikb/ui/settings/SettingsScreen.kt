@@ -1,6 +1,9 @@
 package com.dannr.chengzikb.ui.settings
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Refresh
@@ -30,14 +34,17 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +55,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dannr.chengzikb.data.model.AppSettings
 import com.dannr.chengzikb.data.notify.ReminderStatus
+import com.dannr.chengzikb.data.repo.WallpaperPrefs
+import com.dannr.chengzikb.ui.main.deleteWallpaper
+import com.dannr.chengzikb.ui.main.importWallpaper
 import com.dannr.chengzikb.util.OemGuide
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /**
  * 设置页（主 Tab）：显示 / 学期作息 / 数据。
@@ -59,6 +71,10 @@ fun SettingsScreen(
     onChange: (AppSettings) -> Unit,
     themeSwitchCount: Int?,
     onThemeSwitchCountChange: (Int) -> Unit,
+    wallpaper: WallpaperPrefs?,
+    onWallpaperChange: (WallpaperPrefs) -> Unit,
+    courseBlockOpacity: Int,
+    onCourseBlockOpacityChange: (Int) -> Unit,
     remindEnabled: Boolean,
     remindMinutes: Int,
     reminderStatus: ReminderStatus,
@@ -75,13 +91,37 @@ fun SettingsScreen(
 ) {
     var showMinutePicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // 壁纸偏好尚未从库里读出时按默认值渲染；一旦读出会重组为真实值
+    val wallpaperState = wallpaper ?: WallpaperPrefs.DEFAULT
+    // 系统相册选图（Android 13+ 走 Photo Picker，无需任何存储权限；旧版本自动回退到文件选择器）
+    val pickWallpaper = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val newPath = importWallpaper(context, uri)
+                if (newPath != null) {
+                    deleteWallpaper(context, wallpaperState.path)
+                    // 每次更换壁纸都把模糊度 / 亮度恢复默认，不沿用上一张图的数值
+                    onWallpaperChange(
+                        wallpaperState.copy(
+                            path = newPath,
+                            blur = WallpaperPrefs.DEFAULT.blur,
+                            brightness = WallpaperPrefs.DEFAULT.brightness,
+                        ),
+                    )
+                } else {
+                    Toast.makeText(context, "读取图片失败，请换一张试试", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp),
     ) {
-        SectionTitle("外观")
+        SectionTitle("个性化")
         CardGroup {
             LabeledChips(
                 label = "主题",
@@ -115,6 +155,68 @@ fun SettingsScreen(
             Spacer(Modifier.height(6.dp))
             SwitchRow(label = "低饱和配色", checked = settings.lowSaturation) {
                 onChange(settings.copy(lowSaturation = it))
+            }
+            Spacer(Modifier.height(6.dp))
+            SettingSlider(
+                label = "课程块透明度",
+                value = courseBlockOpacity.toFloat(),
+                range = 20f..100f,
+                format = { "${it.roundToInt()}%" },
+            ) { v -> onCourseBlockOpacityChange(v.roundToInt()) }
+        }
+
+        // 「外观」与「背景壁纸」同属个性化，这里用一张子卡片区分，不再单开一级分区
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "背景壁纸",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+        )
+        CardGroup {
+            NavRow(
+                icon = Icons.Default.Create,
+                label = if (wallpaperState.path == null) "选择背景图片" else "更换背景图片",
+                onClick = {
+                    pickWallpaper.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
+                last = wallpaperState.path == null,
+            )
+            if (wallpaperState.path != null) {
+                SettingSlider(
+                    label = "模糊度",
+                    value = wallpaperState.blur.toFloat(),
+                    range = 0f..100f,
+                    format = { "${it.roundToInt()}" },
+                ) { v -> onWallpaperChange(wallpaperState.copy(blur = v.roundToInt())) }
+                SettingSlider(
+                    label = "亮度",
+                    value = wallpaperState.brightness.toFloat(),
+                    range = -100f..100f,
+                    format = { v ->
+                        val i = v.roundToInt()
+                        if (i > 0) "+$i" else "$i"
+                    },
+                ) { v -> onWallpaperChange(wallpaperState.copy(brightness = v.roundToInt())) }
+                SwitchRow(label = "暗色模式下自动调暗", checked = wallpaperState.autoDim) {
+                    onWallpaperChange(wallpaperState.copy(autoDim = it))
+                }
+                Text(
+                    "背景只作用于课表主界面。模糊需要 Android 12 及以上；低版本仅应用亮度与自动调暗。",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                )
+                NavRow(
+                    icon = Icons.Default.Delete,
+                    label = "移除背景图片",
+                    onClick = {
+                        deleteWallpaper(context, wallpaperState.path)
+                        onWallpaperChange(wallpaperState.copy(path = null))
+                    },
+                    last = true,
+                )
             }
         }
 
@@ -373,6 +475,37 @@ private fun LabeledChips(
                 }
             }
         }
+    }
+}
+
+/**
+ * 带数值显示的滑杆。拖动时只改本地状态，松手（[onValueChangeFinished]）才提交，
+ * 避免每帧写一次数据库；提交后上层值变化会把本地状态重新对齐。
+ */
+@Composable
+private fun SettingSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    format: (Float) -> String,
+    onCommit: (Float) -> Unit,
+) {
+    var local by remember(value) { mutableFloatStateOf(value) }
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                format(local),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = local,
+            onValueChange = { local = it },
+            onValueChangeFinished = { onCommit(local) },
+            valueRange = range,
+        )
     }
 }
 

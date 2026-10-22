@@ -256,7 +256,9 @@ fun mutedCourseTone(c: Color, dark: Boolean): Color {
     if (hsv[1] < 0.02f) return c // 近无彩色（灰/白/黑）没有可压的饱和度，原样返回
     hsv[1] = (hsv[1] * if (dark) MutedCourseDarkSat else MutedCourseLightSat).coerceIn(0f, 1f)
     hsv[2] = if (dark) {
-        (hsv[2] * MutedCourseDarkValue).coerceIn(0.20f, 0.42f)
+        // 暗色底本身很暗（V≈0.10），课块必须明显亮于背景才分得清：
+        // 抬到 0.44~0.62 的中等明度，同时保留低饱和色相。
+        (hsv[2] * MutedCourseDarkValue).coerceIn(0.44f, 0.62f)
     } else {
         hsv[2].coerceAtLeast(MutedCourseLightValue)
     }
@@ -339,8 +341,8 @@ private const val LowSaturationFactor = 0.45f
  */
 private const val MutedCourseLightSat = 0.20f
 private const val MutedCourseLightValue = 0.95f
-private const val MutedCourseDarkSat = 0.50f
-private const val MutedCourseDarkValue = 0.35f
+private const val MutedCourseDarkSat = 0.62f
+private const val MutedCourseDarkValue = 0.65f
 
 /** 炫彩主题的轮转节奏：每 [RainbowStepMillis] 毫秒转 [RainbowStepDegrees] 度（约 7 秒一整圈） */
 private const val RainbowStepMillis = 80L
@@ -354,6 +356,12 @@ private const val RainbowStepDegrees = 4f
  */
 val LocalLowSaturation = staticCompositionLocalOf { false }
 val LocalDarkTheme = staticCompositionLocalOf { false }
+
+/**
+ * 主界面课程块底色的不透明度（0..1）。只作用于格子底色，课名/地点/老师等文字保持不透明；
+ * 用户可在「设置 → 个性化 → 课程块透明度」调整，未设置时为 1。
+ */
+val LocalCourseBlockAlpha = staticCompositionLocalOf { 1f }
 
 /**
  * 全局主题：按设置选择 浅色 / 深色 / 跟随系统；

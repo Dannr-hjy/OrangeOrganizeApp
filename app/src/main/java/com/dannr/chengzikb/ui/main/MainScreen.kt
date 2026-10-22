@@ -47,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -72,6 +73,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.dannr.chengzikb.OrangeApp
 import com.dannr.chengzikb.data.notify.ClassNotifier
 import com.dannr.chengzikb.data.repo.ReminderPrefs
+import com.dannr.chengzikb.data.repo.WallpaperPrefs
 import com.dannr.chengzikb.util.OemGuide
 import com.dannr.chengzikb.data.model.Course
 import com.dannr.chengzikb.data.model.DayOverride
@@ -87,6 +89,8 @@ import com.dannr.chengzikb.data.model.endMinuteIn
 import com.dannr.chengzikb.ui.day.DayOverrideDialog
 import com.dannr.chengzikb.ui.grid.TimetableGrid
 import com.dannr.chengzikb.ui.settings.SettingsScreen
+import com.dannr.chengzikb.ui.theme.LocalCourseBlockAlpha
+import com.dannr.chengzikb.ui.theme.LocalDarkTheme
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 
@@ -143,6 +147,13 @@ fun MainScreen(
     val themeSwitchCount by produceState<Int?>(initialValue = null) {
         app.container.prefsRepository.themeSwitchCount.collect { value = it }
     }
+    // —— 课表主界面背景壁纸（全局偏好） ——
+    val wallpaperPrefs by produceState<WallpaperPrefs?>(initialValue = null) {
+        app.container.prefsRepository.wallpaperPrefs.collect { value = it }
+    }
+    // —— 主界面课程块透明度（全局，20..100） ——
+    val courseBlockOpacity by app.container.prefsRepository.courseBlockOpacity
+        .collectAsStateWithLifecycle(initialValue = 100)
     val remindEnabled = remindPrefs?.enabled ?: false
     val remindMinutes = remindPrefs?.minutes ?: 10
     // 最近一次排程结果（条数/最近一条/精确闹钟是否可用），设置页用它做“提醒到底排上没有”的自查
@@ -381,47 +392,57 @@ fun MainScreen(
         Box(Modifier.fillMaxSize()) {
             when (v) {
                 MainView.GRID -> {
-                    if (s != null && monday != null) {
-                        // key 当前课表 id：切换课表后整棵网格重建（翻页状态归零、避免越界）
-                        key(state.activeTimetableId) {
-                            TimetableGrid(
-                                occurrences = state.occurrences,
-                                periods = state.periods,
-                                termStartMonday = monday,
-                                totalWeeks = s.totalWeeks,
-                                shownDays = s.shownDays,
-                                now = state.now,
-                                showLocation = s.showLocation,
-                                showTeacher = s.showTeacher,
-                                showShortName = s.showShortNameInGrid,
-                                showOtherWeeks = s.showOtherWeeks,
-                                dayPlans = dayPlans,
-                                onEmptySlotLongPress = { day, idx -> pendingSlot = EmptySlot(day, idx) },
-                                onEditDay = { editingDate = it },
-                                onCourseInfo = { occ -> infoOcc = occ }, // 点按 → 详情弹窗（编辑按钮在弹窗内）
-                                onCourseMove = { session, day, start, end, thisWeekOnly, week ->
-                                    scope.launch {
-                                        val ok = vm.moveSession(session, day, start, end, thisWeekOnly, week)
-                                        if (!ok) Toast.makeText(context, "该时段已有其他课", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                // 记住所选周：切到列表/设置再回来仍停在该周（仅限同一课表）
-                                initialWeek = if (viewedTableWeek.first == state.activeTimetableId) {
-                                    viewedTableWeek.second.coerceIn(1, s.totalWeeks.coerceAtLeast(1))
-                                } else null,
-                                onWeekViewed = { w -> viewedTableWeek = state.activeTimetableId to w },
-                                headerActions = {
-                                    GhostButton(Icons.Default.DateRange, desc = "切换课表") { onOpenTables() }
-                                    GhostButton(Icons.Default.Add, desc = "添加课程") {
-                                        // 右上角 ＋：不预填上课安排，进入后自行“＋ 添加一段时间”
-                                        val today = state.todayDayOfWeek
-                                        val day = if (today <= (s.shownDays)) today else 1
-                                        onOpenAdd(day, 0, false)
-                                    }
-                                    GhostButton(Icons.Default.List, desc = "课程列表") { viewIdx = MainView.LIST.ordinal }
-                                    GhostButton(Icons.Default.Settings, desc = "设置") { viewIdx = MainView.SETTINGS.ordinal }
-                                },
-                            )
+                    // 背景壁纸铺在最底层：未设置时该 composable 直接返回，不产生任何绘制
+                    Box(Modifier.fillMaxSize()) {
+                        // 壁纸铺满主界面（含状态栏与顶部栏后的区域）
+                        WallpaperBackground(wallpaper = wallpaperPrefs, dark = LocalDarkTheme.current)
+                        // 课程块透明度只作用于课表主界面的格子（「个性化」里可调）
+                        CompositionLocalProvider(
+                            LocalCourseBlockAlpha provides (courseBlockOpacity / 100f),
+                        ) {
+                            if (s != null && monday != null) {
+                                // key 当前课表 id：切换课表后整棵网格重建（翻页状态归零、避免越界）
+                                key(state.activeTimetableId) {
+                                    TimetableGrid(
+                                        occurrences = state.occurrences,
+                                        periods = state.periods,
+                                        termStartMonday = monday,
+                                        totalWeeks = s.totalWeeks,
+                                        shownDays = s.shownDays,
+                                        now = state.now,
+                                        showLocation = s.showLocation,
+                                        showTeacher = s.showTeacher,
+                                        showShortName = s.showShortNameInGrid,
+                                        showOtherWeeks = s.showOtherWeeks,
+                                        dayPlans = dayPlans,
+                                        onEmptySlotLongPress = { day, idx -> pendingSlot = EmptySlot(day, idx) },
+                                        onEditDay = { editingDate = it },
+                                        onCourseInfo = { occ -> infoOcc = occ }, // 点按 → 详情弹窗（编辑按钮在弹窗内）
+                                        onCourseMove = { session, day, start, end, thisWeekOnly, week ->
+                                            scope.launch {
+                                                val ok = vm.moveSession(session, day, start, end, thisWeekOnly, week)
+                                                if (!ok) Toast.makeText(context, "该时段已有其他课", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        // 记住所选周：切到列表/设置再回来仍停在该周（仅限同一课表）
+                                        initialWeek = if (viewedTableWeek.first == state.activeTimetableId) {
+                                            viewedTableWeek.second.coerceIn(1, s.totalWeeks.coerceAtLeast(1))
+                                        } else null,
+                                        onWeekViewed = { w -> viewedTableWeek = state.activeTimetableId to w },
+                                        headerActions = {
+                                            GhostButton(Icons.Default.DateRange, desc = "切换课表") { onOpenTables() }
+                                            GhostButton(Icons.Default.Add, desc = "添加课程") {
+                                                // 右上角 ＋：不预填上课安排，进入后自行“＋ 添加一段时间”
+                                                val today = state.todayDayOfWeek
+                                                val day = if (today <= (s.shownDays)) today else 1
+                                                onOpenAdd(day, 0, false)
+                                            }
+                                            GhostButton(Icons.Default.List, desc = "课程列表") { viewIdx = MainView.LIST.ordinal }
+                                            GhostButton(Icons.Default.Settings, desc = "设置") { viewIdx = MainView.SETTINGS.ordinal }
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -455,6 +476,14 @@ fun MainScreen(
                                     themeSwitchCount = themeSwitchCount,
                                     onThemeSwitchCountChange = { n ->
                                         scope.launch { app.container.prefsRepository.setThemeSwitchCount(n) }
+                                    },
+                                    wallpaper = wallpaperPrefs,
+                                    onWallpaperChange = { w ->
+                                        scope.launch { app.container.prefsRepository.setWallpaper(w) }
+                                    },
+                                    courseBlockOpacity = courseBlockOpacity,
+                                    onCourseBlockOpacityChange = { percent ->
+                                        scope.launch { app.container.prefsRepository.setCourseBlockOpacity(percent) }
                                     },
                                     remindEnabled = remindEnabled,
                                     remindMinutes = remindMinutes,
