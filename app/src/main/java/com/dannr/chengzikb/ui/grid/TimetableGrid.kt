@@ -136,13 +136,13 @@ fun TimetableGrid(
         }
     }
 
-    val perWeekPlacements = remember(effectiveOccurrences, effectiveDays, showOtherWeeks) {
+    val perWeekPlacements = remember(effectiveOccurrences, effectiveDays, showOtherWeeks, pageCount) {
         (0 until pageCount).map { w ->
             effectiveDays[w].mapValues { (_, eff) ->
                 when (eff) {
                     is EffectiveDay.Rest -> emptyList()
                     is EffectiveDay.Follow -> WeekView.placementsForWeek(
-                        effectiveOccurrences, eff.contentWeek, eff.dayOfWeek, showOtherWeeks,
+                        effectiveOccurrences, eff.contentWeek, eff.dayOfWeek, pageCount, showOtherWeeks,
                     )
                 }
             }

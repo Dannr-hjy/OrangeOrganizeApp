@@ -4,6 +4,7 @@ import com.dannr.chengzikb.data.model.Course
 import com.dannr.chengzikb.data.model.CourseSession
 import com.dannr.chengzikb.data.model.Occurrence
 import com.dannr.chengzikb.data.model.isActiveIn
+import com.dannr.chengzikb.data.model.weekSet
 
 /**
  * 把“课程模板 + 安排 → 一周某页 UI 布局”聚合的纯逻辑。
@@ -47,12 +48,13 @@ object WeekView {
 
     /**
      * 一周某天的完整排布：本周实课 + （可选）非本周课程的幽灵半透明卡。
-     * 幽灵课若与本周实课撞时段则忽略（避免遮挡）。
+     * 仅在安排于本学期剩余周次还有课时显示幽灵课；若与本周实课撞时段则忽略（避免遮挡）。
      */
     fun placementsForWeek(
         all: List<Occurrence>,
         weekIdx: Int,
         day: Int,
+        totalWeeks: Int,
         includeOtherWeeks: Boolean,
     ): List<PlacedCourse> {
         val active = activeOnDay(all, weekIdx, day)
@@ -62,6 +64,7 @@ object WeekView {
         val ghosts = all.filter { occ ->
             occ.session.dayOfWeek == day &&
                 !occ.session.isActiveIn(weekIdx) &&
+                occ.session.weekSet().weeks.any { it > weekIdx && it <= totalWeeks } &&
                 active.none { overlaps(it.session, occ.session) }
         }
         if (ghosts.isEmpty()) return placedActive
