@@ -98,8 +98,12 @@ class ClassNotifierTest {
 
     @Test fun `fresh database snapshot updates the notification title after rename`() = runBlocking {
         notifier.sync()
+        // CourseDao uses INSERT OR REPLACE, so restore its cascaded sessions as the editor does.
+        val sessions = db.courseSessionDao().getAllByTimetable(table)
         db.courseDao().upsert(Course(id = course, name = "新课名", timetableId = table))
+        db.courseSessionDao().insertAll(sessions)
         notifier.sync()
+        assertFalse(reminders().isEmpty())
         assertTrue(reminders().all { shadowOf(it.operation).savedIntent.getStringExtra(ClassNotifier.EXTRA_TITLE) == "新课名" })
     }
 
