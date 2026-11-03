@@ -104,7 +104,10 @@ class LowSaturationCourseColorTest {
             val v0 = hsv(original)[2]
             val s1 = hsv(muted)[1]
             val v1 = hsv(muted)[2]
-            assertTrue("下标 $i 暗色下没压暗: v $v0 -> $v1", v1 <= 0.43f && v1 < v0)
+            // 当前暗色设计保留 0.44–0.62 明度，让课块能与背景区分；8 位 RGB 转换允许一档误差。
+            val rgbStep = 1f / 255f
+            assertTrue("下标 $i 暗色明度不在设计范围: v $v0 -> $v1",
+                v1 in (0.44f - rgbStep)..(0.62f + rgbStep) && v1 < v0)
             assertTrue("下标 $i 暗色下没压饱和: s $s0 -> $s1", s1 < s0)
         }
     }

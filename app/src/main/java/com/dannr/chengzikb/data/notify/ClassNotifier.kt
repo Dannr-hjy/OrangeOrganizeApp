@@ -1,33 +1,24 @@
 package com.dannr.chengzikb.data.notify
 
-import android.Manifest
 import android.app.AlarmManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.dannr.chengzikb.MainActivity
-import com.dannr.chengzikb.R
+import androidx.room.withTransaction
 import com.dannr.chengzikb.data.db.AppDatabase
 import com.dannr.chengzikb.data.model.MetaEntry
-import com.dannr.chengzikb.data.model.isActiveIn
-import com.dannr.chengzikb.data.model.startMinuteIn
-import com.dannr.chengzikb.domain.DayPlan
-import com.dannr.chengzikb.domain.DayPlanIndex
-import com.dannr.chengzikb.domain.DayVariants
 import com.dannr.chengzikb.domain.WeekMath
-import com.dannr.chengzikb.domain.WeekView
+import com.dannr.chengzikb.domain.ReminderPlanner
+import com.dannr.chengzikb.data.repo.PrefsRepository
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
+import java.time.Instant
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,19 +40,12 @@ data class ReminderStatus(
     val nextText: String? = null,
     val exactAllowed: Boolean = true,
     val syncedAtMillis: Long = 0L,
+    val notificationWarning: String? = null,
 )
 
 /**
- * 课前通知：把【当前课表】未来 ~35 天的上课提醒排入系统 AlarmManager；
- * 每门课在"上课时间 − 提前分钟"触发系统通知（开关与提前分钟来自全局偏好）。
- * 应用每次在前台且数据/设置变化时调用 [sync] 重排。
- *
- * 可靠性上做了三件事（对应真机上"提醒经常不响/不及时"的三类原因）：
- * 1) 精确闹钟：Android 14 起 SCHEDULE_EXACT_ALARM 默认不授予，退化成近似闹钟后
- *    在 Doze 里可能被推迟十几分钟——清单里改声明 USE_EXACT_ALARM（见 AndroidManifest）。
- * 2) 重排触发点：除开机外，覆盖安装、改时间/时区也都会让已排的 RTC 闹钟整体失效，
- *    统一由 [BootRescheduler] 兜住。
- * 3) 先算后写：见 [sync]。
+ * 当前课表的系统闹钟。每日自动续排；数据变化、系统事件与返回前台时重新同步。
+ * 所有实例共用排程锁，读库使用同一事务，通知接收器不需要打开数据库。
  */
 class ClassNotifier(private val context: Context, private val db: AppDatabase) {
 
@@ -74,7 +58,9 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
         private const val KEY_NEXT = "status_next"
         private const val KEY_EXACT = "status_exact"
         private const val KEY_SYNCED_AT = "status_synced_at"
-        private const val SCHEDULE_DAYS = 35L
+        private const val SCHEDULE_DAYS = 7L
+        private val syncLock = Mutex()
+        internal val deliveryLock = Any()
         private const val TEST_CODE = 0x7E57
 
         const val ACTION_REMIND = "com.dannr.chengzikb.action.CLASS_REMIND"
@@ -83,6 +69,9 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
         const val EXTRA_LOCATION = "location"
         const val EXTRA_CODE = "code"
         const val EXTRA_TEST = "test"
+        const val EXTRA_START_MILLIS = "start_millis"
+        const val EXTRA_FIRE_MILLIS = "fire_millis"
+        const val ACTION_RENEW = "com.dannr.chengzikb.action.RENEW_REMINDERS"
 
         // 进程内共用：设置页订阅它，任何一处 sync（含开机/更新后的重排）都会即时反映到 UI
         private val _status = MutableStateFlow(ReminderStatus())
@@ -93,57 +82,68 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
 
     private val alarm: AlarmManager? = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
-    /** 串行化重排：开着应用时前后台切换/设置变更可能同时触发多次 sync，交错执行会互相踩。 */
-    private val syncLock = Mutex()
-
     init {
         // 进程刚起时用上次落盘的结果打底，避免设置页先显示"0 条"再跳变
         if (_status.value.syncedAtMillis == 0L) _status.value = readStatus()
     }
 
-    /**
-     * 按当前开关与提前分钟重排全部课前提醒。
-     *
-     * 关键点：**先把要排的算完，再动系统闹钟**。旧实现是"先 cancelAll 再算"，
-     * 中途任何一步抛异常（或提前 return）都会把已经排好的提醒一起清空，
-     * 用户侧表现为"提醒忽然整体失效、怎么都不响"。
-     */
-    suspend fun sync(enabled: Boolean, leadMinutes: Int) = syncLock.withLock {
+    /** 只读取持久化偏好，UI 的加载占位值不能清除已有闹钟。 */
+    suspend fun sync() = syncLock.withLock {
         withContext(Dispatchers.IO) {
             val alarmMgr = alarm
+            var enabled = false
             val plan = try {
-                if (enabled && leadMinutes > 0 && alarmMgr != null) buildPlan(leadMinutes) else emptyList()
+                db.withTransaction {
+                    enabled = db.metaDao().get(PrefsRepository.KEY_REMIND_ENABLED) == "1"
+                    val lead = (db.metaDao().get(PrefsRepository.KEY_REMIND_MINUTES)?.toIntOrNull() ?: 10)
+                        .coerceIn(1, 90)
+                    if (enabled && alarmMgr != null) buildPlan(lead) else emptyList()
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "重排课前提醒失败，保留原有闹钟", e)
                 return@withContext
             }
-            // 改动系统闹钟这一步不允许被取消：上面算完好几分钟的课表，这里只差"写进去"，
-            // 半途中断会留下"排了一半、编码也没记全"的残局。整段是幂等且毫秒级的。
-            withContext(NonCancellable) { applyPlan(alarmMgr, plan) }
+            withContext(NonCancellable) {
+                synchronized(deliveryLock) {
+                    prefs().edit().putBoolean("enabled", enabled).commit()
+                    applyPlan(alarmMgr, plan)
+                }
+                scheduleRenewal(alarmMgr, enabled)
+            }
         }
     }
 
     private fun applyPlan(alarmMgr: AlarmManager?, plan: List<Reminder>) {
         val canExact = alarmMgr != null && canScheduleExact(alarmMgr)
+        var exact = canExact
+        val old = loadCodes()
         val scheduled = mutableSetOf<Int>()
+        // 调用方持有 deliveryLock，投递与重排不会交错后重复弹出同一节课。
         for (r in plan) {
-            if (alarmMgr != null && setAlarm(alarmMgr, r, canExact)) scheduled += r.code
+            if (wasDelivered(context, r.code, r.startMillis)) continue
+            if (alarmMgr != null) {
+                val result = setAlarm(alarmMgr, r, canExact)
+                if (result != AlarmResult.EXACT) exact = false
+                if (result != AlarmResult.FAILED || r.code in old) scheduled += r.code
+            }
         }
-        // 只取消这次没排上的旧闹钟。这次排上的走 FLAG_UPDATE_CURRENT 原地替换，
-        // 若先 cancel 再 set，同一个 PendingIntent 会被自己取消掉。
-        (loadCodes() - scheduled).forEach { alarmMgr?.cancel(pending(it)) }
+        // 失败的替换保留原有闹钟；只有删除、关闭或已送达的提醒才取消。
+        (old - scheduled).forEach { alarmMgr?.cancel(pending(it)) }
         storeCodes(scheduled)
 
         val next = plan.filter { it.code in scheduled }.minByOrNull { it.fireAt }
         publish(
             ReminderStatus(
                 count = scheduled.size,
-                nextText = next?.let { "${dayLabel(it.fireAt.toLocalDate())} ${clock(it.startMinute)} ${it.courseName}" },
-                exactAllowed = canExact,
+                nextText = next?.let { "${dayLabel(it.fireAt.toLocalDate())} ${clock(it.fireAt.hour * 60 + it.fireAt.minute)} 提醒 · ${clock(it.startMinute)} ${it.courseName}上课" },
+                exactAllowed = exact,
                 syncedAtMillis = System.currentTimeMillis(),
+                notificationWarning = ReminderNotifications.warning(context),
             ),
         )
-        Log.i(TAG, "已排入 ${scheduled.size} 条课前提醒（精确=$canExact），最近一条：${next?.fireAt}")
+        Log.i(TAG, "已排入 ${scheduled.size} 条课前提醒（精确=$exact），最近一条：${next?.fireAt}")
     }
 
     /** 一条待排的提醒：触发时刻 + 已固化在 Intent 里的通知内容（到点无需再查库）。 */
@@ -153,10 +153,9 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
         val startMinute: Int,
         val courseName: String,
         val intent: Intent,
-    ) {
-        val triggerMillis: Long =
-            fireAt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-    }
+        val startMillis: Long,
+        val triggerMillis: Long,
+    )
 
     /** 算出未来 [SCHEDULE_DAYS] 天内全部需要提醒的时刻（不接触系统闹钟，纯计算）。 */
     private suspend fun buildPlan(leadMinutes: Int): List<Reminder> {
@@ -164,90 +163,76 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
             ?: (db.timetableDao().getAll().firstOrNull()?.id ?: 0L)
         if (active <= 0) return emptyList()
         val settings = db.settingsDao().getByTimetable(active) ?: return emptyList()
-        val termStart = LocalDate.ofEpochDay(settings.termStartEpochDay)
-        val totalWeeks = settings.totalWeeks
         val periods = db.periodDao().getAllByTimetable(active)
-        if (periods.isEmpty()) return emptyList()
         val sessions = db.courseSessionDao().getAllByTimetable(active)
-        if (sessions.isEmpty()) return emptyList()
-        val coursesList = db.courseDao().getAllByTimetable(active)
-        val courses = coursesList.associateBy { it.id }
-
-        // 调休：休息日不排提醒、补课日按映射后的星期与所选周次排——与课表/小组件同一套解析
-        val dayPlans = DayPlanIndex.of(
-            db.dayOverrideDao().getAllByTimetable(active),
-            settings.autoHoliday,
-            DayVariants.allFor(WeekView.occurrences(coursesList, sessions), totalWeeks, periods),
-            termStartMonday = termStart,
-            totalWeeks = totalWeeks,
-        )
-
-        val now = LocalDateTime.now()
-        val baseDate = now.toLocalDate()
-        val out = ArrayList<Reminder>()
-
-        for (offset in 0..SCHEDULE_DAYS) {
-            val date = baseDate.plusDays(offset)
-            val plan = dayPlans.planFor(date)
-            // 休息日 → 不排（当天没有课表）
-            if (plan !is DayPlan.Follow) continue
-            val dayOfWeek = plan.dayOfWeek
-            val week = plan.sourceWeek ?: WeekMath.weekIndexOf(date, termStart)
-            if (week !in 1..totalWeeks) continue
-            for (s in sessions) {
-                if (s.dayOfWeek != dayOfWeek) continue
-                if (!s.isActiveIn(week)) continue
-                val course = courses[s.courseId] ?: continue
-                val startMinute = s.startMinuteIn(periods) ?: continue
-                val classStart = LocalDateTime.of(date, LocalTime.of(startMinute / 60, startMinute % 60))
-                if (!classStart.isAfter(now)) continue
-                val fire = classStart.minusMinutes(leadMinutes.toLong())
-                // 触发时刻已过的不再补排——避免“划掉又弹回来”（已提醒过一次就保持已提醒）
-                if (!fire.isAfter(now)) continue
-                // 编码里带 date：同一门课在不同日期是不同的闹钟；同一格在重排后编码不变，
-                // 于是能原地替换而不是"取消+重排"，少一个"恰好卡在两者之间"的空窗
-                val code = ("t$active-c${course.id}-s${s.id}-d${date}").hashCode()
-                val intent = baseIntent(code)
-                    .putExtra(EXTRA_TITLE, course.name)
-                    .putExtra(EXTRA_TIME, clock(startMinute))
-                    .putExtra(EXTRA_LOCATION, s.location ?: "") // 地点随安排（同一门课不同时段可不同）
-                    .putExtra(EXTRA_CODE, code)
-                out += Reminder(code, fire, startMinute, course.name, intent)
-            }
+        val courses = db.courseDao().getAllByTimetable(active)
+        val overrides = db.dayOverrideDao().getAllByTimetable(active)
+        val now = Instant.now()
+        val zone = ZoneId.systemDefault()
+        pruneDelivered(context, now.toEpochMilli())
+        return ReminderPlanner.build(
+            settings, periods, courses, sessions, overrides, leadMinutes, now, zone, SCHEDULE_DAYS,
+        ).mapNotNull { r ->
+            val code = ("t$active-c${r.courseId}-s${r.sessionId}-d${r.date}").hashCode()
+            if (wasDelivered(context, code, r.startMillis)) return@mapNotNull null
+            val intent = baseIntent(code)
+                .putExtra(EXTRA_TITLE, r.courseName)
+                .putExtra(EXTRA_TIME, clock(r.startMinute))
+                .putExtra(EXTRA_LOCATION, r.location)
+                .putExtra(EXTRA_START_MILLIS, r.startMillis)
+                .putExtra(EXTRA_FIRE_MILLIS, r.fireMillis)
+            Reminder(
+                code, LocalDateTime.ofInstant(Instant.ofEpochMilli(maxOf(r.fireMillis, now.toEpochMilli())), zone),
+                r.startMinute, r.courseName, intent, r.startMillis, maxOf(r.fireMillis, now.toEpochMilli()),
+            )
         }
-        return out
     }
 
-    /** @return 是否真的排上了（精确闹钟被拒时会退化成近似闹钟再试一次） */
-    private fun setAlarm(alarmMgr: AlarmManager, r: Reminder, canExact: Boolean): Boolean {
+    /** 续排独立于 UI 与小组件；即使没有课、长期不开 App，也会延长排程窗口。 */
+    private fun scheduleRenewal(alarmMgr: AlarmManager?, enabled: Boolean) {
+        if (alarmMgr == null) return
+        val operation = PendingIntent.getBroadcast(
+            context, 0, Intent(context, BootRescheduler::class.java).setAction(ACTION_RENEW),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        if (!enabled) {
+            alarmMgr.cancel(operation)
+            return
+        }
+        val next = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        // 续排已有七天余量，不占用 allowWhileIdle 的配额，以免延迟真正的课前提醒。
+        runCatching { alarmMgr.set(AlarmManager.RTC_WAKEUP, next, operation) }
+            .onFailure { Log.w(TAG, "提醒续排闹钟设置失败", it) }
+    }
+
+    private enum class AlarmResult { EXACT, INEXACT, FAILED }
+
+    /** 返回实际排程模式，避免精确闹钟调用失败后界面仍显示“准点”。 */
+    private fun setAlarm(alarmMgr: AlarmManager, r: Reminder, canExact: Boolean): AlarmResult {
         val pi = pendingFor(r.code, r.intent)
         return try {
             if (canExact) {
                 alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, r.triggerMillis, pi)
+                AlarmResult.EXACT
             } else {
                 // 没有“精确闹钟”权限：退化为允许的近似闹钟（可能略有延迟，但可后台触发）
                 alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, r.triggerMillis, pi)
+                AlarmResult.INEXACT
             }
-            true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "精确排程失败，尝试近似闹钟 code=${r.code}", e)
             try {
                 alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, r.triggerMillis, pi)
-                true
+                AlarmResult.INEXACT
             } catch (e2: Exception) {
                 Log.w(TAG, "排程失败 code=${r.code}", e2)
-                false
+                AlarmResult.FAILED
             }
         }
     }
 
     private fun canScheduleExact(alarmMgr: AlarmManager): Boolean =
         Build.VERSION.SDK_INT < 31 || runCatching { alarmMgr.canScheduleExactAlarms() }.getOrDefault(false)
-
-    private fun cancelAll() {
-        val alarmMgr = alarm ?: return
-        loadCodes().forEach { code -> alarmMgr.cancel(pending(code)) }
-        storeCodes(emptySet())
-    }
 
     private fun baseIntent(code: Int): Intent =
         Intent(context, ClassReminderReceiver::class.java).setAction(ACTION_REMIND).putExtra(EXTRA_CODE, code)
@@ -284,12 +269,8 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
             nextText = p.getString(KEY_NEXT, null),
             exactAllowed = p.getBoolean(KEY_EXACT, true),
             syncedAtMillis = p.getLong(KEY_SYNCED_AT, 0L),
+            notificationWarning = ReminderNotifications.warning(context),
         )
-    }
-
-    /** 供 UI 在“已关闭提醒/数据无关”时调用，确保旧闹钟被清掉。 */
-    suspend fun cancelAllReminders() = syncLock.withLock {
-        withContext(Dispatchers.IO) { cancelAll() }
     }
 
     /**
@@ -297,6 +278,7 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
      * @return 是否成功排上
      */
     fun sendTestReminder(delaySeconds: Long = 5L): Boolean {
+        ReminderNotifications.ensureChannel(context)
         val alarmMgr = alarm ?: return false
         val at = LocalDateTime.now().plusSeconds(delaySeconds)
         val intent = baseIntent(TEST_CODE)
@@ -320,68 +302,50 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
     }
 }
 
-/** 闹钟到点：直接发一条系统通知（提醒内容已固化在 Intent 里，无需查库）。 */
+/** 到点同步投递，不启动数据库；记录已送达的课程，避免重排/重复广播再次提醒。 */
 class ClassReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // 广播里抛异常会连带进程一起挂掉，这里整体兜住：宁可少一条通知，不要连累整个 App
+        if (intent.action != ClassNotifier.ACTION_REMIND) return
         try {
-            deliver(context, intent)
+            synchronized(ClassNotifier.deliveryLock) {
+                val code = intent.getIntExtra(ClassNotifier.EXTRA_CODE, 0)
+                val start = intent.getLongExtra(ClassNotifier.EXTRA_START_MILLIS, 0L)
+                val fire = intent.getLongExtra(ClassNotifier.EXTRA_FIRE_MILLIS, 0L)
+                val test = intent.getBooleanExtra(ClassNotifier.EXTRA_TEST, false)
+                val now = System.currentTimeMillis()
+                if (!test && !deliveryPrefs(context).getBoolean("enabled", true)) return
+                if (!test && start > 0L) {
+                    // 已经过了上课时间的旧通知不再弹出；尚未开课的系统延迟通知仍投递。
+                    if (now >= start || now < fire) return
+                    if (wasDelivered(context, code, start)) return
+                }
+                if (ReminderNotifications.deliver(context, intent) && !test && start > 0L) {
+                    markDelivered(context, code, start)
+                }
+            }
         } catch (e: Exception) {
             Log.w("OrangeReminder", "课前提醒投递失败", e)
         }
     }
+}
 
-    private fun deliver(context: Context, intent: Intent) {
-        val title = intent.getStringExtra(ClassNotifier.EXTRA_TITLE) ?: return
-        val time = intent.getStringExtra(ClassNotifier.EXTRA_TIME) ?: ""
-        val location = intent.getStringExtra(ClassNotifier.EXTRA_LOCATION).orEmpty()
-        val code = intent.getIntExtra(ClassNotifier.EXTRA_CODE, 0)
-        val isTest = intent.getBooleanExtra(ClassNotifier.EXTRA_TEST, false)
-        if (Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
-        ensureChannel(context)
-        val contentTitle = if (isTest) "测试提醒" else "$title 即将开始"
-        val contentText = if (isTest) {
-            "这条能弹出来，说明通知与提醒通道正常"
-        } else {
-            buildString {
-                append("$time 上课")
-                if (location.isNotBlank()) append(" · $location")
-            }
-        }
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            code,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(context, ClassNotifier.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_notify)
-            .setContentTitle(contentTitle)
-            .setContentText(contentText)
-            .setAutoCancel(true)
-            .setContentIntent(contentIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            // 两声急促震动 + 系统默认提示音（响铃/震动/静音遵从系统与渠道设置）
-            .setDefaults(NotificationCompat.DEFAULT_SOUND)
-            .setVibrate(longArrayOf(0L, 250L, 150L, 250L))
-            .build()
-        NotificationManagerCompat.from(context).notify(code, notification)
-    }
+private fun deliveryPrefs(context: Context) = context.getSharedPreferences("orange_reminders", Context.MODE_PRIVATE)
 
-    private fun ensureChannel(context: Context) {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // 每次发通知都强制高优先级 + 允许震动（覆盖早期可能建的旧渠道）
-        val channel = manager.getNotificationChannel(ClassNotifier.CHANNEL_ID)
-            ?: NotificationChannel(ClassNotifier.CHANNEL_ID, "课前提醒", NotificationManager.IMPORTANCE_HIGH)
-        channel.description = "课程开始前的系统提醒"
-        channel.importance = NotificationManager.IMPORTANCE_HIGH
-        channel.enableVibration(true)
-        channel.setVibrationPattern(longArrayOf(0L, 250L, 150L, 250L))
-        manager.createNotificationChannel(channel)
-    }
+internal fun wasDelivered(context: Context, code: Int, start: Long): Boolean =
+    deliveryPrefs(context).getStringSet("delivered_occurrences", emptySet()).orEmpty().contains("$code:$start")
+
+private fun markDelivered(context: Context, code: Int, start: Long) {
+    val p = deliveryPrefs(context)
+    val delivered = p.getStringSet("delivered_occurrences", emptySet()).orEmpty().toMutableSet()
+    delivered += "$code:$start"
+    p.edit().putStringSet("delivered_occurrences", delivered).commit()
+}
+
+private fun pruneDelivered(context: Context, now: Long) = synchronized(ClassNotifier.deliveryLock) {
+    val p = deliveryPrefs(context)
+    val delivered = p.getStringSet("delivered_occurrences", emptySet()).orEmpty()
+        .filter { (it.substringAfter(':').toLongOrNull() ?: 0L) > now }.toSet()
+    p.edit().putStringSet("delivered_occurrences", delivered).apply()
 }
 
 private fun clock(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)

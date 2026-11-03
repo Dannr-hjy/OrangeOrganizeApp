@@ -5,11 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.dannr.chengzikb.data.db.AppDatabase
-import com.dannr.chengzikb.data.repo.PrefsRepository
 import com.dannr.chengzikb.widget.WidgetUpdateJob
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * 系统事件后重排课前提醒闹钟 + 桌面小组件自刷新。
@@ -24,24 +24,25 @@ class BootRescheduler : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
         if (action !in HANDLED) return
-        try {
-            val appContext = context.applicationContext
-            val db = AppDatabase.getInstance(appContext)
-            val prefs = PrefsRepository(db.metaDao())
-            runBlocking(Dispatchers.IO) {
-                val enabled = prefs.remindersEnabled.first()
-                val minutes = prefs.remindMinutes.first()
-                ClassNotifier(appContext, db).sync(enabled, minutes)
-                WidgetUpdateJob(appContext).refreshAll()
+        val pending = goAsync()
+        val appContext = context.applicationContext
+        scope.launch {
+            try {
+                val db = AppDatabase.getInstance(appContext)
+                ClassNotifier(appContext, db).sync()
+                if (action != ClassNotifier.ACTION_RENEW) WidgetUpdateJob(appContext).refreshAll()
+            } catch (e: Exception) {
+                Log.w("OrangeReminder", "系统事件后重排失败（$action）", e)
+            } finally {
+                pending.finish()
             }
-        } catch (e: Exception) {
-            // 广播里抛异常会拖垮进程；重排失败下次事件/开应用时还有机会补上
-            Log.w("OrangeReminder", "系统事件后重排失败（$action）", e)
         }
     }
 
     private companion object {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val HANDLED = setOf(
+            ClassNotifier.ACTION_RENEW,
             Intent.ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",
             Intent.ACTION_MY_PACKAGE_REPLACED,

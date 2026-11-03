@@ -48,7 +48,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -219,37 +218,6 @@ fun MainScreen(
             if (ok) "约 5 秒后会弹出一条测试提醒" else "测试提醒排程失败，请检查系统闹钟权限",
             Toast.LENGTH_SHORT,
         ).show()
-    }
-
-    // 只在课表内容/提醒设置真的变化时重排闹钟（用内容指纹做 key，避免 30s 心跳反复重建）
-    val scheduleKey = remember(
-        state.courses, state.sessions, state.periods, state.settings,
-        state.activeTimetableId, state.overrides,
-    ) {
-        buildString {
-            append(state.activeTimetableId).append('|')
-            state.settings?.let {
-                append(it.termStartEpochDay).append(',').append(it.totalWeeks)
-                    .append(',').append(if (it.autoHoliday) 1 else 0).append(',')
-            }
-            // 调休：休息日不该排提醒、补课日要按映射后的星期与所选周次排，所以指纹里必须带上
-            state.overrides.forEach { o ->
-                append(o.dateEpochDay).append('-').append(o.kind).append('-').append(o.followDayOfWeek)
-                    .append('-').append(o.followWeek ?: 0).append(';')
-            }
-            append('|')
-            state.periods.forEach { p -> append(p.id).append('-').append(p.startMinute).append('-').append(p.endMinute).append(';') }
-            state.sessions.forEach { s ->
-                append(s.id).append('-').append(s.dayOfWeek).append('-').append(s.startPeriodIdx)
-                    .append('-').append(s.endPeriodIdx).append('-').append(s.activeWeeksText)
-                    .append('-').append(s.location ?: "")
-                    .append('-').append(s.startMinute).append('-').append(s.endMinute).append(';')
-            }
-        }
-    }
-    LaunchedEffect(scheduleKey, remindPrefs) {
-        val prefs = remindPrefs ?: return@LaunchedEffect
-        app.container.classNotifier.sync(prefs.enabled, prefs.minutes)
     }
 
     // rememberSaveable：从设置子页(作息/学期/备份等 NavHost 覆盖页)返回后仍留在设置页而非回到课表
@@ -492,6 +460,15 @@ fun MainScreen(
                                     onSetRemindMinutes = { m -> scope.launch { app.container.prefsRepository.setRemindMinutes(m) } },
                                     onFixExactAlarm = { askAlarmAndAutoStart() },
                                     onTestReminder = { testReminder() },
+                                    onOpenNotificationSettings = {
+                                        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                            .putExtra(Settings.EXTRA_CHANNEL_ID, ClassNotifier.CHANNEL_ID)
+                                        runCatching { context.startActivity(intent) }.onFailure {
+                                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                Uri.parse("package:${context.packageName}")))
+                                        }
+                                    },
                                     onOpenTerm = onOpenTerm,
                                     onOpenPeriods = onOpenPeriods,
                                     onOpenBackup = onOpenBackup,

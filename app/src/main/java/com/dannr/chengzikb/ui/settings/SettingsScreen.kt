@@ -82,6 +82,7 @@ fun SettingsScreen(
     onSetRemindMinutes: (Int) -> Unit,
     onFixExactAlarm: () -> Unit,
     onTestReminder: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
     onOpenTerm: () -> Unit,
     onOpenPeriods: () -> Unit,
     onOpenBackup: () -> Unit,
@@ -314,6 +315,20 @@ fun SettingsScreen(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     reminderStatusText(reminderStatus),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                reminderStatus.notificationWarning?.let { warning ->
+                    Text(
+                        warning,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                TextButton(onClick = onOpenNotificationSettings) { Text("通知声音与横幅设置") }
+                Text(
+                    "请在系统中允许横幅/悬浮通知并关闭静默；勿扰模式可能抑制声音与横幅。",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
