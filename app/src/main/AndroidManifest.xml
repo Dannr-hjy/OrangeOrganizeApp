@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 课前提醒必须准点：没有精确闹钟权限时会退化成近似闹钟，Doze 里能被推迟十几分钟以上。
          Android 14 起 SCHEDULE_EXACT_ALARM 默认不授予（需用户手动去系统设置开），
