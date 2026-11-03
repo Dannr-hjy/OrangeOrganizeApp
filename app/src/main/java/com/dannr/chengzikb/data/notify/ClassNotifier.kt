@@ -200,7 +200,8 @@ class ClassNotifier(private val context: Context, private val db: AppDatabase) {
             return
         }
         val next = LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        runCatching { alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, operation) }
+        // 续排已有七天余量，不占用 allowWhileIdle 的配额，以免延迟真正的课前提醒。
+        runCatching { alarmMgr.set(AlarmManager.RTC_WAKEUP, next, operation) }
             .onFailure { Log.w(TAG, "提醒续排闹钟设置失败", it) }
     }
 

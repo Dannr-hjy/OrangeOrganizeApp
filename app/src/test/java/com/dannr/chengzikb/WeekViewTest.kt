@@ -58,7 +58,7 @@ END:VCALENDAR
     }
 
     private fun lanesOneWeek(all: List<Occurrence>, week: Int, day: Int = 2) =
-        WeekView.placementsForWeek(all, week, day, includeOtherWeeks = false)
+        WeekView.placementsForWeek(all, week, day, totalWeeks = 19, includeOtherWeeks = false)
 
     @Test
     fun `不同课程排在同一时段的不同周次时按周分别显示`() {
