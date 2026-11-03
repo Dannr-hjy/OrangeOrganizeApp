@@ -1,5 +1,7 @@
 package com.dannr.chengzikb
 
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +25,12 @@ import com.dannr.chengzikb.ui.theme.ThemeMode
 import com.dannr.chengzikb.ui.theme.parseHexColor
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        // 从权限/通知设置返回，或强停后重新打开，立即恢复排程并更新诊断。
+        lifecycleScope.launch { (application as OrangeApp).container.classNotifier.sync() }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

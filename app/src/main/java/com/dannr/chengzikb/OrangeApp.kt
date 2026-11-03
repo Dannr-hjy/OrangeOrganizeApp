@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Configuration
 import android.os.Build
+import com.dannr.chengzikb.data.notify.ReminderDataHook
 import com.dannr.chengzikb.di.AppContainer
 import com.dannr.chengzikb.widget.WidgetDataHook
 import com.dannr.chengzikb.widget.WidgetUpdateJob
@@ -28,6 +29,7 @@ class OrangeApp : Application() {
     lateinit var container: AppContainer
         private set
 
+    private var reminderDataHook: ReminderDataHook? = null
     private var widgetDataHook: WidgetDataHook? = null
     private var refreshReceiver: BroadcastReceiver? = null
     private var lastNightMode: Boolean? = null
@@ -35,6 +37,7 @@ class OrangeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        reminderDataHook = ReminderDataHook(container.database, container.classNotifier).also { it.start() }
         // 进程内中央钩子：课表数据一旦变化即自动刷新桌面小组件
         widgetDataHook = WidgetDataHook(this).also { it.start() }
         // 进程存活期间：到分钟/系统日夜切换时即时刷新组件
